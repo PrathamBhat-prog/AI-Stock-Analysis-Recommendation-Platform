@@ -13,9 +13,9 @@ COPY requirements.txt .
 
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy source code and training entrypoint
+# Copy source code
 COPY src ./src
-COPY train.py verify_pipeline.py ./
+COPY trading_model_sniper_v5.pkl artifacts/models/trading_model_sniper_v5.pkl
 
 # Expose Gradio port
 EXPOSE 7860
