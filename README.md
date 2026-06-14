@@ -91,7 +91,7 @@ A pure-pandas rule-based engine that detects market regime using 6 signal catego
 
 Outputs: trend score [-1, +1], trend label, momentum label, volatility label, plain-English summary.
 
-**Works for ANY ticker** — uses only price/volume patterns, no company-specific training.
+**Works for yfinance-supported tickers** — uses only price/volume patterns, no company-specific training.
 
 ### Investment Horizon Blending (no retraining required)
 
@@ -107,7 +107,7 @@ Outputs: trend score [-1, +1], trend label, momentum label, volatility label, pl
 
 ## Features
 
-- **Any company** — US, India NSE/BSE, Europe, Asia, ETFs, crypto (any yfinance ticker)
+- **Multi-exchange coverage** — US, India NSE/BSE, Europe, Asia, ETFs, and crypto where supported by yfinance
 - **5 investment horizons** — 20 days to 1 year
 - **Multi-modal feature engineering** — GDELT sentiment, VIX, technical indicators
 - **CatBoostClassifier** — optimized for non-linear relationships and robustness
@@ -149,7 +149,7 @@ BUY / SELL / HOLD + confidence + plain-English explanation
 **Production Model File:** `trading_model_sniper_v5.pkl`
 - Serialized CatBoostClassifier with all training state
 - 59.32% accuracy, 60.46% precision
-- Works for ANY stock ticker across 5 investment horizons
+- Supports yfinance-compatible market tickers across 5 investment horizons
 
 ---
 
@@ -300,13 +300,14 @@ Edit `src/config/ml_config.py`:
 
 ---
 
-## AWS Deployment (Coming Soon)
+## AWS Deployment
 
-Account setup in progress. Planned stack:
-- **ECR** — Docker image registry
-- **SageMaker** — managed training & endpoints
-- **Lambda + API Gateway** — serverless inference
-- **S3** — artifact and model storage
+The application is containerized with Docker and deployed on AWS as a managed container workload:
+
+- **Amazon ECR** — stores versioned Docker images for centralized image management.
+- **Amazon ECS with AWS Fargate** — runs the containerized stock-analysis application without managing EC2 instances.
+- **Application Load Balancer** — provides internet-facing access to the deployed service with target-group routing and health-based traffic management.
+- **AWS networking** — configured with VPC, subnet, port-mapping, and security-group rules for controlled public access to the application.
 
 ---
 
