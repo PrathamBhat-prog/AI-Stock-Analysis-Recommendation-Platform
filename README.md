@@ -1,8 +1,14 @@
 # AI Stock Analysis & Recommendation Platform
 
-Production-style stock analyser: **CatBoost Sniper v5** + **GDELT sentiment** + **VIX macro** + **trend analysis**, with honest multi-horizon messaging.
+> ## ⚠️ IMPORTANT DISCLAIMER
+>
+> **This project is for EDUCATIONAL and RESEARCH purposes only.**
+>
+> It is **NOT financial advice**. It is **NOT** a recommendation to buy or sell any security.
+> Past model metrics do not guarantee future results. Do not use this tool as the sole basis
+> for investment decisions. Consult a qualified financial professional before investing.
 
-> **Disclaimer:** Research/education only. Not financial advice.
+Production-style stock analyser: **CatBoost Sniper v5** + **dual-path sentiment** (training proxy + live GDELT) + **VIX macro** + **trend analysis**, with honest multi-horizon messaging.
 
 [![CI](https://github.com/PrathamBhat-prog/AI-Stock-Analysis-Recommendation-Platform/actions/workflows/ci.yml/badge.svg)](https://github.com/PrathamBhat-prog/AI-Stock-Analysis-Recommendation-Platform/actions/workflows/ci.yml)
 
@@ -10,47 +16,47 @@ Production-style stock analyser: **CatBoost Sniper v5** + **GDELT sentiment** + 
 
 ## Highlights
 
-| Feature | Implementation |
-|---------|----------------|
-| 10-day CatBoost Sniper v5 (`.cbm`) | Shorter horizon label = stronger learnable signal vs 20d |
-| **Train/serve sentiment split** | Training: price/volume **proxy** (no GDELT 429). Inference: **live GDELT** |
-| Proxy sentiment (`sentiment_mode=proxy`) | `src/data/sentiment_proxy.py` — ~32 yfinance calls, no rate limits |
-| Optional FinBERT sentiment (local, no API key) | `SENTIMENT_BACKEND=finbert` when `transformers` installed |
-| Per-ticker chronological train/val/test splits | `src/data/splits.py` — 70% / 15% / 15% per ticker |
-| Walk-forward backtest + transaction costs | `src/backtest/walk_forward.py` — default 10 bps one-way |
-| Inverse-vol position sizing + volatility risk overlay | `position_sizer.py` + `risk_agent.py` (BUY→HOLD in HIGH vol) |
-| Honest horizon disclaimers (API + UI) | `src/config/horizons.py`, exposed at `GET /horizons` |
-| FastAPI + Gradio + Docker Compose | `src/main.py`, `src/ui/gradio_app.py`, `docker-compose.yml` |
-| CI | GitHub Actions — `verify_pipeline.py` + `pytest` |
-| No paid third-party APIs | yfinance, GDELT, VADER/FinBERT, CatBoost — internet required |
+| Capability | Details |
+|------------|---------|
+| **Sniper v5** (CatBoost `.cbm`) | 10-trading-day direction classifier; native CatBoost export |
+| **Dual-path sentiment** | Training: market-derived proxy + yfinance headlines. Inference: live GDELT + VADER/FinBERT |
+| **Multi-agent pipeline** | ML + trend (6 signals) + risk (vol overlay) + horizon-weighted decision |
+| **Position sizing** | Inverse-volatility scaling with 10% base allocation (capped 20%) |
+| **Honest horizons** | Trading-day keys with API/UI disclaimers (`GET /horizons`) |
+| **MLOps** | MLflow training logs, optional inference logging, Docker Compose |
+| **Quality** | Per-ticker chronological splits, walk-forward backtest, CI (pytest) |
+| **Stack** | 100% free/open source — yfinance, GDELT, CatBoost, FastAPI, Gradio |
 
-**Metrics honesty:** UI model panel and `artifacts/models/sniper_metadata.json` report **actual** held-out test metrics from the last training run. We do not hard-code marketing numbers in the UI.
+**Latest held-out test metrics** are stored in `artifacts/models/sniper_metadata.json` after each training run (reported honestly in the Gradio model panel).
 
 ---
 
-## What can this actually predict?
+## What does the model predict?
 
 Horizon keys are **trading days** (market sessions), not calendar days.
 
-| Horizon key | Trading days | ~Calendar equivalent | ML weight | Trend weight | Honest answer |
-|-------------|--------------|----------------------|-----------|--------------|---------------|
-| `5d` | 5 | ~1 week | 80% | 20% | Short-term directional bias |
-| `21d` | 21 | ~1 month | 50% | 50% | **Default** — closest to ML training (~10 trading days) |
-| `63d` | 63 | ~3 months | 30% | 70% | Trend regime |
-| `126d` | 126 | ~6 months of sessions (~180 calendar days) | 15% | 85% | Trend extrapolation |
-| `252d` | 252 | ~1 year of sessions (~365 calendar days) | 10% | 90% | Trend direction — **not** an annual price forecast |
+| Key | Sessions | ~Calendar | ML wt | Trend wt | Role |
+|-----|----------|-----------|-------|----------|------|
+| `5d` | 5 | ~1 week | 80% | 20% | Short-term bias |
+| `21d` | 21 | ~1 month | 50% | 50% | **Default** — nearest to ~10d ML training |
+| `63d` | 63 | ~3 months | 30% | 70% | Trend-led |
+| `126d` | 126 | ~6 mo sessions | 15% | 85% | Trend extrapolation |
+| `252d` | 252 | ~1 yr sessions | 10% | 90% | Trend only — not an annual forecast |
 
-The CatBoost model label: **P(price higher in ~10 trading days)**. Threshold is tuned on validation F1 (stored in `sniper_metadata.json`).
+**ML label:** P(price higher in ~**10 trading days**).  
+**Decision layer:** BUY if blended score ≥ 0.58, SELL if ≤ 0.42 (`src/config/horizons.py`).
 
-### Why not GDELT during training?
-GDELT's free API returns **HTTP 429** on historical backfill (hours/overnight, often fails).  
-**Solution:** train on a **market-derived sentiment proxy**; apply **real GDELT headlines only at inference** (1–2 calls per stock analysis). See [Architecture](docs/ARCHITECTURE.md).
+---
 
-### Model training (v5.1)
-- **10-day labels**, **proxy sentiment**, **winsorization**, **validation F1 threshold tuning**
-- `gdelt_lite` / `gdelt_full` deprecated — use `proxy` (default)
+## Architecture (summary)
 
-Decision thresholds (blended ML+trend score): BUY ≥ 0.58, SELL ≤ 0.42 (`src/config/horizons.py`).
+```
+Training:  yfinance OHLCV + VIX + sentiment proxy → CatBoost (.cbm)
+Inference: live GDELT headlines + same price/VIX features → prediction
+Agents:    ML + Trend + Risk → Decision → Position sizing → API / Gradio
+```
+
+See [Architecture](docs/ARCHITECTURE.md) and [Project Guide PDF](docs/deliverables/AI_Stock_Analyser_Project_Guide.pdf).
 
 ---
 
@@ -63,73 +69,54 @@ python -m venv venv
 .\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 
-# Option A — copy bundled legacy pickle (inference works; .cbm preferred)
-python scripts/setup_model.py
-
-# Option B — production train (~10 min)
-python train.py --strategy sniper --period 10y --sentiment-mode proxy
-
+python scripts/setup_model.py          # or train below
+python train.py --strategy sniper --period 10y
 python verify_pipeline.py
 pytest tests/ -v
 ```
 
-### Run locally
-
 ```powershell
-# API — http://localhost:8000/docs
-uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
-
-# UI — http://localhost:7860
-python -m src.ui.gradio_app
+uvicorn src.main:app --reload --port 8000    # API docs :8000/docs
+python -m src.ui.gradio_app                  # UI :7860
 ```
-
-### Docker (API + UI + MLflow UI)
 
 ```powershell
 docker compose up --build
-# API → :8000   Gradio → :7860   MLflow UI → :5000
 ```
-
-Mount `./artifacts` and `./.cache` so trained `.cbm` models and GDELT caches persist.
 
 ---
 
 ## Training
 
-| Command | Description |
-|---------|-------------|
-| `python scripts/run_production_pipeline.py` | **Recommended** — proxy train + verify + PDF/DOCX (~10 min) |
-| `python train.py --strategy sniper --period 10y` | Same (default: `sentiment_mode=proxy`) |
-| `python train.py --strategy sniper --sentiment-mode inference_only` | Neutral sentiment baseline (~5 min) |
-| `python train.py --strategy sniper --sentiment-mode lite` | **Deprecated** — GDELT 429 rate limits |
-| `python train.py --strategy sklearn --period 10y` | Compare **8** model candidates (7 tabular + LSTM), 20d labels |
+| Command | Purpose |
+|---------|---------|
+| `python scripts/run_production_pipeline.py` | Train + verify + regenerate docs (~10 min) |
+| `python train.py --strategy sniper --period 10y` | Production CatBoost (default `sentiment_mode=proxy`) |
+| `python train.py --strategy sklearn --period 10y` | Research: 8 model candidates (7 tabular + LSTM) |
 | `python train.py --strategy backtest --period 10y` | Walk-forward backtest (10 bps costs) |
-| `python scripts/backfill_sentiment.py AAPL --period 10y` | Pre-warm GDELT cache for one ticker |
 
-**Outputs:** `artifacts/models/trading_model_sniper_v5.cbm`, `sniper_metadata.json`, `sniper_feature_importance.csv`
+**Outputs:** `artifacts/models/trading_model_sniper_v5.cbm`, `sniper_metadata.json`, `overfitting_report.json`
 
-**Universe (default):** 24 US large-caps + 8 Indian `.NS` tickers (`DEFAULT_TRAIN_TICKERS` in `ml_config.py`).
+**Universe:** 32 tickers (24 US + 8 India `.NS`) — `DEFAULT_TRAIN_TICKERS` in `ml_config.py`.
+
+### Anti-overfitting measures
+
+- Per-ticker **chronological** 70/15/15 split (no random shuffle)
+- CatBoost **early stopping** on validation AUC
+- **Winsorization** (1st–99th percentile) on features
+- Threshold tuned on **validation F1** only, evaluated on held-out test
+- Run `python scripts/generate_deliverables.py` to refresh overfitting analysis in the project PDF
 
 ---
 
 ## API
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| `GET` | `/health` | Liveness |
-| `GET` | `/horizons` | Horizon keys + weights + disclaimers |
-| `POST` | `/analyze` | Single ticker (`ticker`, `horizon_key`, optional `period`) |
-| `POST` | `/analyze/batch` | Up to 20 tickers |
-
-```bash
-curl http://localhost:8000/horizons
-
-curl -X POST http://localhost:8000/analyze \
-  -H "Content-Type: application/json" \
-  -d '{"ticker": "AAPL", "horizon_key": "21d"}'
-```
-
-Default API `period` is `2y` (minimum enforced for short periods via `MIN_INFERENCE_PERIOD`).
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/health` | Health check |
+| GET | `/horizons` | Horizon weights + disclaimers |
+| POST | `/analyze` | Single ticker analysis |
+| POST | `/analyze/batch` | Up to 20 tickers |
 
 ---
 
@@ -139,69 +126,19 @@ Default API `period` is `2y` (minimum enforced for short periods via `MIN_INFERE
 |----------|---------|---------|
 | `SNIPER_MODEL_PATH` | `artifacts/models/trading_model_sniper_v5.cbm` | Model file |
 | `SENTIMENT_BACKEND` | `auto` | `vader` \| `finbert` \| `auto` |
-| `ENABLE_INFERENCE_MLFLOW` | `false` | Log each API call to MLflow |
-| `CORS_ORIGINS` | `*` | API CORS |
-| `API_RATE_LIMIT_PER_MINUTE` | `60` | Per-IP rate limit |
-
-### Optional FinBERT
-
-```powershell
-pip install transformers torch
-$env:SENTIMENT_BACKEND = "finbert"
-```
+| `ENABLE_INFERENCE_MLFLOW` | `false` | Per-request MLflow logging |
 
 ---
 
-## Project structure
+## Documentation
 
-```
-src/
-  config/horizons.py, ml_config.py, settings.py
-  data/          features, sniper_dataset, sentiment_backfill, news_fetcher
-  models/        sniper_trainer, sniper_predictor, model_io
-  agents/        ml, trend, risk, decision
-  risk/          position_sizer.py
-  backtest/      walk_forward.py
-  pipelines/     inference_pipeline, training_pipeline
-  ui/            gradio_app.py, model_info.py
-  main.py
-scripts/         setup_model.py, backfill_sentiment.py, start.sh
-tests/
-docs/ARCHITECTURE.md
-```
+| Document | Description |
+|----------|-------------|
+| [Architecture](docs/ARCHITECTURE.md) | System design |
+| [Project Guide (PDF)](docs/deliverables/AI_Stock_Analyser_Project_Guide.pdf) | Full technical write-up + code snippets + overfitting analysis |
+| [Interview Cheat Sheet (DOCX)](docs/deliverables/Interview_Cheat_Sheet.docx) | Q&A for technical interviews |
 
 ---
-
-## Stack (free / open source)
-
-| Layer | Tools |
-|-------|-------|
-| Data | yfinance, GDELT, ^VIX |
-| Sentiment | VADER (in `requirements.txt`), FinBERT (optional) |
-| ML | CatBoost (production), scikit-learn, XGBoost, LightGBM, PyTorch LSTM (research pipeline) |
-| Serving | FastAPI, Gradio |
-| MLOps | MLflow (training; inference logging opt-in) |
-| CI | GitHub Actions |
-| Deploy | Docker Compose (`docker-compose.yml`) |
-
----
-
-## Troubleshooting
-
-| Problem | Fix |
-|---------|-----|
-| Model not found | `python train.py --strategy sniper --period 10y` or `python scripts/setup_model.py` |
-| GDELT slow on first train | Expected — cached in `.cache/news/` and `artifacts/sentiment.db` |
-| GDELT 429 rate limits | Backfill samples every 20 sessions; re-runs use cache |
-| Re-train without GDELT | `--no-gdelt-backfill` |
-| FinBERT OOM on CPU | `SENTIMENT_BACKEND=vader` |
-| Enable inference MLflow | `ENABLE_INFERENCE_MLFLOW=true` |
-
----
-
-## Docs
-
-- [Architecture](docs/ARCHITECTURE.md)
 
 ## Author
 

@@ -81,7 +81,7 @@ def main() -> int:
         "--sentiment-mode",
         choices=["proxy", "inference_only", "lite", "full"],
         default="proxy",
-        help="proxy=default (no GDELT 429); lite/full deprecated",
+        help="proxy=default (market-derived training sentiment); lite/full for research only",
     )
     args = parser.parse_args()
 

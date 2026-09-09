@@ -1,40 +1,34 @@
 # Architecture
 
-## Sentiment: train/serve split (solves GDELT HTTP 429)
+## Dual-path sentiment design
 
-GDELT's free API rate-limits historical backfill (HTTP 429). We do **not** call GDELT during training loops.
+| Phase | Source | Rationale |
+|-------|--------|-----------|
+| **Training** | Price/volume sentiment proxy + optional yfinance headlines | Stable, reproducible features across 10 years without per-day news API dependency |
+| **Inference** | Live GDELT (+ yfinance fallback) scored with VADER or FinBERT | Real-time news for user-facing analysis |
 
-| Phase | Sentiment source | API calls |
-|-------|------------------|-----------|
-| **Training** (`sentiment_mode=proxy`) | Price/volume proxy + optional 1× yfinance headlines per ticker | ~32 yfinance calls total |
-| **Inference** | Live GDELT → yfinance fallback → VADER/FinBERT | 1–2 per user analysis |
+Proxy: `tanh(5d_return × 8) × (1 + 0.15 × volume_zscore)` — backward-looking only.
 
-Proxy formula: `tanh(5d_return × 8) × (1 + 0.15 × volume_zscore)` — backward-looking, no leakage.
+Implementation: `src/data/sentiment_proxy.py` (train), `src/data/news_fetcher.py` (inference).
 
-`gdelt_lite` / `gdelt_full` modes remain in code but are **deprecated** for local use.
+## ML model
 
-## Product truth (horizons)
+- **CatBoost Sniper v5** — P(up in ~10 trading days)
+- 10 features: momentum, 52w distance, sentiment family, volume, VIX, interactions
+- Per-ticker chronological split; early stopping; winsorization
 
-Horizon keys are **trading days**. Sniper v5 label: **P(up in ~10 trading days)**.
-
-## Data flow
+## Agents & serving
 
 ```
-yfinance (OHLCV) ──┬──► features + proxy sentiment (training)
-^VIX               │         ├──► Trend Agent
-                   │         ├──► Risk Agent
-                   │         └──► Sniper v5 CatBoost (.cbm)
-                   │
-Live GDELT ────────┴──► sniper_predictor (inference only)
-                              │
-                              ├──► Decision Agent
-                              ├──► Position sizing
-                              └──► FastAPI / Gradio
+OHLCV + VIX → Features → CatBoost / Trend / Risk → Decision (horizon blend) → Sizing → API + Gradio
 ```
 
-## Training commands
+Horizon keys are **trading days**. Long horizons are trend-dominated by design.
 
-```bash
-python scripts/run_production_pipeline.py          # proxy, ~10 min
-python train.py --strategy sniper --sentiment-mode proxy
-```
+## Overfitting controls
+
+1. Chronological split per ticker (no leakage across time or listings)
+2. Validation-based early stopping (CatBoost `use_best_model=True`)
+3. Feature winsorization before fit
+4. Threshold tuned on validation; test set untouched until final metrics
+5. `overfitting_report.json` compares train / val / test AUC after each training run

@@ -1,7 +1,7 @@
 """
 Production pipeline (~10 min):
-  1. Train Sniper v5 (proxy sentiment — no GDELT 429)
-  2. Live GDELT at inference only
+  1. Train Sniper v5 (proxy sentiment for reproducible training)
+  2. Live GDELT at inference
   3. Verify + PDF/DOCX deliverables
 """
 
@@ -40,14 +40,14 @@ def main() -> int:
         "--sentiment-mode",
         choices=["proxy", "inference_only", "lite", "full"],
         default="proxy",
-        help="proxy=default (no GDELT 429); lite/full deprecated",
+        help="proxy=default (market-derived training sentiment); lite/full for research only",
     )
     parser.add_argument("--skip-train", action="store_true")
     args = parser.parse_args()
 
     if args.sentiment_mode in ("lite", "full"):
         logger.warning(
-            "GDELT %s mode often hits HTTP 429 — use --sentiment-mode proxy instead",
+            "GDELT %s mode is slow for multi-year training — use --sentiment-mode proxy instead",
             args.sentiment_mode,
         )
 

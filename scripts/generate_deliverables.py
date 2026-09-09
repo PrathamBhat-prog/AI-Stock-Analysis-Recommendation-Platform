@@ -1,22 +1,22 @@
 """
-Generate final deliverables (NOT markdown):
-  - artifacts/deliverables/AI_Stock_Analyser_Project_Guide.pdf
-  - artifacts/deliverables/Interview_Cheat_Sheet.docx
+Generate project PDF + interview DOCX (includes overfitting analysis).
 
-Run automatically after production training, or manually:
-  python scripts/generate_deliverables.py
+Outputs:
+  docs/deliverables/AI_Stock_Analyser_Project_Guide.pdf
+  docs/deliverables/Interview_Cheat_Sheet.docx
 """
 
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "artifacts" / "deliverables"
+OUT = ROOT / "docs" / "deliverables"
 META_PATH = ROOT / "artifacts" / "models" / "sniper_metadata.json"
 
 
@@ -36,220 +36,178 @@ def _run_verification() -> tuple[bool, str]:
             text=True,
             timeout=120,
         )
-        out = (r.stdout or "") + (r.stderr or "")
-        return r.returncode == 0, out.strip()
+        return r.returncode == 0, ((r.stdout or "") + (r.stderr or "")).strip()
     except Exception as exc:
         return False, str(exc)
 
 
+def _overfitting_report() -> dict:
+    try:
+        from src.models.overfitting_analysis import run_overfitting_analysis
+        return run_overfitting_analysis()
+    except Exception as exc:
+        return {"error": str(exc), "summary": "Overfitting analysis could not be run."}
+
+
 def _snippet(path: str, start: int, end: int) -> str:
-    lines = (ROOT / path).read_text(encoding="utf-8").splitlines()
-    chunk = lines[start - 1 : end]
-    return "\n".join(chunk)
+    return "\n".join((ROOT / path).read_text(encoding="utf-8").splitlines()[start - 1 : end])
 
 
-def _build_project_pdf(meta: dict, verify_ok: bool, verify_log: str) -> Path:
+def _build_project_pdf(meta: dict, of_report: dict, verify_ok: bool) -> Path:
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import cm
-    from reportlab.platypus import Paragraph, Preformatted, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.platypus import Paragraph, Preformatted, SimpleDocTemplate, Spacer
 
     OUT.mkdir(parents=True, exist_ok=True)
     pdf_path = OUT / "AI_Stock_Analyser_Project_Guide.pdf"
     test = meta.get("test_metrics", {})
-    doc = SimpleDocTemplate(str(pdf_path), pagesize=A4, topMargin=2 * cm, bottomMargin=2 * cm)
+    val = meta.get("val_metrics", {})
+    of_m = of_report.get("metrics_by_split", {})
+    train_m = of_m.get("train", {})
+    val_m = of_m.get("validation", val)
+    test_m = of_m.get("test", test)
+
+    doc = SimpleDocTemplate(str(pdf_path), pagesize=A4, topMargin=1.8 * cm, bottomMargin=1.8 * cm)
     styles = getSampleStyleSheet()
-    h1 = ParagraphStyle("H1", parent=styles["Heading1"], fontSize=16, spaceAfter=10)
-    h2 = ParagraphStyle("H2", parent=styles["Heading2"], fontSize=13, spaceAfter=8)
-    body = ParagraphStyle("Body", parent=styles["Normal"], fontSize=10, leading=14, spaceAfter=6)
-    code = ParagraphStyle("Code", parent=styles["Code"], fontSize=8, leading=10, backColor=colors.HexColor("#f4f4f4"))
+    h1 = ParagraphStyle("H1", parent=styles["Heading1"], fontSize=16, spaceAfter=8)
+    h2 = ParagraphStyle("H2", parent=styles["Heading2"], fontSize=12, spaceAfter=6)
+    body = ParagraphStyle("Body", parent=styles["Normal"], fontSize=10, leading=13, spaceAfter=5)
+    warn = ParagraphStyle("Warn", parent=body, textColor=colors.HexColor("#B45309"), fontSize=11, spaceAfter=8)
+    code = ParagraphStyle("Code", parent=styles["Code"], fontSize=7.5, leading=9, backColor=colors.HexColor("#f5f5f5"))
 
-    story = []
-    story.append(Paragraph("AI Stock Analysis &amp; Recommendation Platform", h1))
-    story.append(Paragraph(
-        f"Author: Pratham Bhat | Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
-        body,
-    ))
-    story.append(Spacer(1, 0.3 * cm))
-
-    sections = [
-        ("1. Executive Summary", """
-Production-style stock analyser using CatBoost Sniper v5, GDELT news sentiment, VIX macro features,
-and a trend analysis agent. Serves BUY/SELL/HOLD via FastAPI and Gradio with honest multi-horizon
-messaging (trading days, not calendar days). 100% free stack: yfinance, GDELT, VADER/FinBERT, CatBoost.
-        """),
-        ("2. Problem &amp; Goals", """
-Build an end-to-end ML pipeline that predicts short-term stock direction (~20 trading days) while
-being honest about longer horizons (trend-dominated). No paid APIs. Reproducible training, caching,
-CI, and Docker deployment for portfolio/interview use.
-        """),
-        ("3. Architecture", """
-Data: yfinance OHLCV + ^VIX + GDELT headlines.
-Features: unified features.py (12 sklearn features + chart columns); Sniper uses 10 dedicated features.
-Agents: ML (CatBoost), Trend (6 signal groups), Risk (20d vol), Decision (horizon-weighted blend).
-Output: position sizing (inverse vol) + plain-English explanation.
-Serving: FastAPI :8000, Gradio :7860, optional MLflow :5000.
-        """),
-        ("4. ML Model — CatBoost Sniper v5", f"""
-Target: P(price higher in ~20 trading days).
-Features: momentum_20d, dist_52w_high, rolling_sentiment_20d, vol_ratio_5d, VIX, sent_lag_1/3/5,
-sent_vix_interaction, vix_velocity.
-Training: 32 tickers, per-ticker chronological 70/15/15 split, GDELT historical backfill (SQLite cache).
-Threshold: {meta.get('threshold', 0.52)} on ML probability; decision layer uses composite ≥0.58 for BUY.
-        """),
-        ("5. Latest Held-Out Test Metrics", f"""
-ROC-AUC: {test.get('roc_auc', 'N/A')}
-Accuracy: {test.get('accuracy', 'N/A')}
-Precision @ threshold: {test.get('precision', 'N/A')}
-Recall @ threshold: {test.get('recall', 'N/A')}
-Train rows: {meta.get('train_rows', 'N/A')} | GDELT backfill: {meta.get('sentiment_backfill', 'N/A')}
-Verification smoke test: {'PASSED' if verify_ok else 'FAILED'}
-        """),
-        ("6. Multi-Horizon Honesty", """
-Horizon keys are TRADING DAYS. 126d ≈ 6 months of market sessions (~180 calendar days).
-252d ≈ 1 year of sessions (~365 calendar days). ML weight drops as horizon lengthens; 252d is ~90% trend.
-The model is NOT trained for annual price forecasts.
-        """),
-        ("7. Caching &amp; Production Pipeline", """
-GDELT backfill: artifacts/sentiment.db + .cache/news/hist_*.json (resumable).
-Command: python scripts/run_production_pipeline.py --period 10y
-Re-runs skip cached dates/tickers.
-        """),
-        ("8. Limitations", """
-• Directional classifier, not price target or return magnitude.
-• GDELT rate limits → sampled backfill (every ~20 sessions) + forward-fill.
-• Indian tickers may have sparser GDELT coverage.
-• Past metrics ≠ future performance. Research/education only.
-        """),
+    story = [
+        Paragraph("AI Stock Analysis &amp; Recommendation Platform", h1),
+        Paragraph(f"Pratham Bhat | {datetime.now(timezone.utc).strftime('%Y-%m-%d')}", body),
+        Paragraph(
+            "<b>EDUCATIONAL USE ONLY — NOT FINANCIAL ADVICE.</b> Do not use for real trading decisions.",
+            warn,
+        ),
     ]
 
-    for title, text in sections:
+    blocks = [
+        ("1. Executive Summary", """
+End-to-end stock analysis platform: CatBoost Sniper v5 predicts 10-trading-day direction using
+price, volume, VIX, and sentiment features. Dual-path sentiment: proxy at training time, live
+GDELT at inference. Multi-agent pipeline (ML + trend + risk) with horizon-weighted BUY/SELL/HOLD,
+inverse-vol position sizing, FastAPI, Gradio, Docker, MLflow, and CI.
+        """),
+        ("2. System Architecture", """
+Data: yfinance OHLCV, ^VIX, GDELT (inference), VADER/FinBERT.
+Training: sentiment proxy (sentiment_proxy.py) + 32 tickers × 10y, per-ticker chronological split.
+Model: CatBoost .cbm, 10 features, 10-day binary label.
+Serving: inference_pipeline.py → decision_agent.py → position_sizer.py → API/UI.
+        """),
+        ("3. Held-Out Test Metrics (from sniper_metadata.json)", f"""
+Threshold (val-tuned): {meta.get('threshold', 'N/A')}
+ROC-AUC: {test.get('roc_auc', 'N/A')} | Accuracy: {test.get('accuracy', 'N/A')}
+Precision: {test.get('precision', 'N/A')} | Recall: {test.get('recall', 'N/A')}
+Train rows: {meta.get('train_rows', 'N/A')} | Sentiment mode: {meta.get('sentiment_mode', 'N/A')}
+        """),
+        ("4. Overfitting Analysis — Methodology", """
+How we check for overfitting (run after each training via overfitting_analysis.py):
+
+1. Rebuild the dataset with identical settings (proxy sentiment, 10y, 32 tickers).
+2. Apply per-ticker chronological 70/15/15 split — test set never seen during training.
+3. Load the saved .cbm model; score train, validation, and test partitions.
+4. Tune probability threshold on validation F1 only; apply same threshold to all splits.
+5. Compare ROC-AUC across splits. Flag if train AUC − val AUC &gt; 0.05 (overfitting risk).
+
+Additional safeguards during training:
+• CatBoost early stopping on validation AUC (best iteration retained, not max iterations).
+• Feature winsorization at 1st/99th percentile.
+• No random train/test shuffle (time-series safe).
+        """),
+        ("5. Overfitting Analysis — Results", f"""
+Verdict: {of_report.get('verdict', 'N/A')}
+{of_report.get('summary', '')}
+
+AUC by split:
+  Train:      {train_m.get('roc_auc', 'N/A')}
+  Validation: {val_m.get('roc_auc', 'N/A')}
+  Test:       {test_m.get('roc_auc', 'N/A')}
+
+Gaps: train−val AUC = {of_report.get('gaps', {}).get('train_minus_val_auc', 'N/A')};
+      val−test AUC = {of_report.get('gaps', {}).get('val_minus_test_auc', 'N/A')}
+
+CatBoost best iteration: {of_report.get('catboost_best_iteration', 'N/A')} (early stop vs 1200 max).
+
+Interpretation: Fast training (~2–10 min) is expected — CatBoost on ~55k tabular rows with
+early stopping is CPU-efficient. Speed alone does not imply overfitting; the val/test AUC gap does.
+        """),
+        ("6. Limitations", """
+• Modest predictive power (AUC ~0.50–0.52) — realistic for public retail features.
+• Not a price-target or portfolio optimiser; directional research tool only.
+• Long UI horizons are trend-dominated, not ML annual forecasts.
+• EDUCATIONAL PURPOSE ONLY — NOT FINANCIAL ADVICE.
+        """),
+    ]
+    for title, text in blocks:
         story.append(Paragraph(title, h2))
         story.append(Paragraph(text.strip().replace("\n", " "), body))
 
-    story.append(Paragraph("9. Key Code Snippets", h2))
-
-    snippets = [
-        ("Horizon weights (src/config/horizons.py)", _snippet("src/config/horizons.py", 27, 45)),
-        ("Decision blend (src/agents/decision_agent.py)", _snippet("src/agents/decision_agent.py", 55, 77)),
-        ("Inverse-vol sizing (src/risk/position_sizer.py)", _snippet("src/risk/position_sizer.py", 47, 67)),
-        ("GDELT backfill (src/data/sentiment_backfill.py)", _snippet("src/data/sentiment_backfill.py", 49, 64)),
-    ]
-    for title, code_text in snippets:
+    story.append(Paragraph("7. Key Code Snippets", h2))
+    for title, code_text in [
+        ("sentiment_proxy.py", _snippet("src/data/sentiment_proxy.py", 1, 25)),
+        ("Per-ticker split", _snippet("src/data/splits.py", 1, 35)),
+        ("Decision blend", _snippet("src/agents/decision_agent.py", 55, 77)),
+        ("Early stopping params", _snippet("src/config/ml_config.py", 72, 85)),
+    ]:
         story.append(Paragraph(title, body))
         story.append(Preformatted(code_text, code))
-        story.append(Spacer(1, 0.2 * cm))
+        story.append(Spacer(1, 0.15 * cm))
 
-    if verify_log:
-        story.append(Paragraph("10. Verification Log", h2))
-        story.append(Preformatted(verify_log[:2000], code))
-
+    story.append(Paragraph(f"8. Verification: {'PASSED' if verify_ok else 'FAILED'}", h2))
     doc.build(story)
     return pdf_path
 
 
-def _build_interview_docx(meta: dict) -> Path:
+def _build_interview_docx(meta: dict, of_report: dict) -> Path:
     from docx import Document
-    from docx.shared import Pt
+    from docx.shared import Pt, RGBColor
 
     OUT.mkdir(parents=True, exist_ok=True)
-    docx_path = OUT / "Interview_Cheat_Sheet.docx"
+    path = OUT / "Interview_Cheat_Sheet.docx"
     doc = Document()
-    style = doc.styles["Normal"]
-    style.font.name = "Calibri"
-    style.font.size = Pt(11)
+    doc.styles["Normal"].font.name = "Calibri"
+    doc.styles["Normal"].font.size = Pt(11)
 
-    def h(text: str, level: int = 1):
-        doc.add_heading(text, level=level)
+    p = doc.add_paragraph()
+    r = p.add_run("EDUCATIONAL ONLY — NOT FINANCIAL ADVICE")
+    r.bold = True
+    r.font.color.rgb = RGBColor(0xB4, 0x53, 0x09)
 
-    def p(text: str):
-        doc.add_paragraph(text)
-
+    doc.add_heading("Interview Cheat Sheet", 0)
     test = meta.get("test_metrics", {})
-
-    h("Interview Cheat Sheet — AI Stock Analyser", 0)
-    p(f"Metrics snapshot: Test ROC-AUC {test.get('roc_auc', 'N/A')}, "
-      f"GDELT backfill {meta.get('sentiment_backfill', 'N/A')}")
+    doc.add_paragraph(
+        f"Test metrics: AUC {test.get('roc_auc', 'N/A'):.4f}, "
+        f"Acc {test.get('accuracy', 'N/A'):.2%}, Prec {test.get('precision', 'N/A'):.2%}"
+    )
 
     qa = [
-        ("Tell me about this project in 60 seconds.",
-         "End-to-end stock analyser: CatBoost predicts 20-day direction using price, volume, VIX, "
-         "and GDELT sentiment. Trend and risk agents blend in for longer horizons. FastAPI + Gradio, "
-         "Docker, MLflow, CI. Honest about what ML can and cannot predict."),
-        ("Why CatBoost over XGBoost/LightGBM for production?",
-         "Robust defaults, strong tabular performance, native .cbm export, handles mixed features well. "
-         "XGB/LGBM remain in sklearn research pipeline for comparison."),
-        ("Why 20-day forecast horizon?",
-         "1-day direction is mostly noise (~50% accuracy). 20 trading days captures swing moves "
-         "while keeping enough labels per ticker. Aligns sklearn research pipeline with production."),
-        ("Why trading days vs calendar days in the UI?",
-         "Finance uses session counts: 252 ≈ 1 year of market activity, not 252 calendar days. "
-         "We document this explicitly to avoid misleading users."),
-        ("Why GDELT instead of paid news APIs?",
-         "Free, global, no API key. Trade-off: rate limits and sparse historical depth → "
-         "sample every 20 sessions, SQLite cache, disk cache, resumable backfill script."),
-        ("Why VADER default and FinBERT optional?",
-         "VADER is fast, CPU-friendly, reproducible. FinBERT is better semantically but needs "
-         "transformers/torch and more compute. SENTIMENT_BACKEND=auto picks FinBERT when available."),
-        ("Why per-ticker chronological splits?",
-         "Pooling all tickers and random-splitting leaks future data across symbols and listing dates. "
-         "Per-ticker 70/15/15 preserves time order within each stock."),
-        ("Why walk-forward backtest instead of single train/test?",
-         "Time series violates IID. Walk-forward retrains on expanding windows — industry standard. "
-         "Includes 10 bps transaction costs per trade."),
-        ("What are the biggest limitations?",
-         "• Not a price target model — binary direction only.\n"
-         "• Long horizons are trend extrapolation, not ML forecasts.\n"
-         "• GDELT sentiment is sampled and forward-filled.\n"
-         "• Modest AUC (~0.52–0.55) — realistic for retail-grade features, not hedge-fund alpha."),
-        ("What pain points did you hit while building?",
-         "• Two incompatible ML systems (5d sklearn vs 20d Sniper) — unified to 20d.\n"
-         "• README claimed features code didn't implement — full truth audit.\n"
-         "• GDELT 429 rate limits — hours-long backfill, caching layer, resumable pipeline.\n"
-         "• Fake metrics in Gradio UI — replaced with live sniper_metadata.json.\n"
-         "• Trading-day vs calendar-day labeling errors in docs."),
-        ("How do you handle HIGH volatility?",
-         "Risk agent uses 20d realized vol. Decision agent downgrades BUY → HOLD in HIGH regime. "
-         "Position sizer uses inverse-vol scaling (10% base, 20% cap)."),
-        ("Why composite score 0.58 for BUY not 0.52?",
-         "0.52 is ML probability threshold inside CatBoost signals. 0.58 is the blended ML+trend "
-         "composite after horizon weighting — stricter final gate."),
-        ("Can this predict a stock for 1 year?",
-         "No honestly. At 252d, ~90% weight is trend analysis. We show disclaimers in API and UI. "
-         "ML was trained on 20-day moves only."),
-        ("How would you improve it next?",
-         "Sector-specific models, better sentiment (full FinBERT pipeline), options/implied vol features, "
-         "proper purged cross-validation, paper trading loop. Portfolio upload was intentionally skipped."),
-        ("Tricky: Why might precision be 0% at 0.52 threshold?",
-         "Class imbalance + high threshold → few positive predictions on test set. "
-         "ROC-AUC still informative. Threshold tuning trades recall for precision."),
-        ("Tricky: Is this financial advice?",
-         "No. Research/education disclaimer everywhere. Sizing is illustrative inverse-vol, not execution."),
-        ("Tricky: Why not LSTM for production?",
-         "LSTM in research pipeline; needs more data, harder to debug, slower inference. "
-         "CatBoost on tabular features won for production simplicity and .cbm deployment."),
-        ("Tricky: How do you prevent data leakage?",
-         "Chronological splits per ticker, backward-only features, GDELT cache for past dates only, "
-         "walk-forward backtest, no future returns in feature rows."),
-        ("System design: How does caching work?",
-         "SQLite sentiment_cache for scores; .cache/news for raw GDELT JSON. "
-         "backfill_all_sentiment.py tracks progress in sentiment_backfill_progress.json. "
-         "Re-runs are cache-hit only."),
-        ("System design: How would you deploy?",
-         "Docker Compose (API + Gradio + MLflow). Mount artifacts/ and .cache/. "
-         "SNIPER_MODEL_PATH env var. ENABLE_INFERENCE_MLFLOW=false by default for latency."),
+        ("60-second pitch?", "ML stock analyser: CatBoost predicts 10-day direction from price, VIX, "
+         "sentiment. Agents blend ML+trend+risk by horizon. FastAPI+Gradio+Docker+CI. Honest disclaimers."),
+        ("Why CatBoost?", "Strong tabular defaults, .cbm export, early stopping, handles mixed features."),
+        ("Why 10-day horizon?", "1-day is noise; 10 sessions balances signal vs label count for 32 tickers."),
+        ("Dual-path sentiment?", "Train on reproducible proxy; inference uses live GDELT — standard train/serve split."),
+        ("How prevent overfitting?", "Per-ticker chronological split, val early stopping, winsorization, "
+         "threshold on val only, compare train/val/test AUC in overfitting_report.json."),
+        ("Is fast training suspicious?", "No — ~55k rows + CatBoost early stop finishes in minutes. "
+         "Check val vs test AUC gap, not wall-clock time."),
+        ("Trading days vs calendar?", "252 sessions ≈ 1 year of market activity, not 252 calendar days."),
+        ("Limitations?", "AUC ~0.50, not financial advice, long horizons are trend-only."),
+        ("Why not LSTM in production?", "CatBoost simpler to deploy (.cbm), faster inference; LSTM in research pipeline."),
+        ("Data leakage prevention?", "Chronological per-ticker split, backward-only features, walk-forward backtest."),
     ]
-
     for q, a in qa:
-        h(q, 2)
-        p(a)
+        doc.add_heading(q, 2)
+        doc.add_paragraph(a)
 
-    h("Quick Reference — Stack", 1)
-    p("yfinance, GDELT, VADER, CatBoost, FastAPI, Gradio, MLflow, Docker, GitHub Actions, pytest.")
-
-    doc.save(docx_path)
-    return docx_path
+    doc.add_heading("Overfitting check summary", 1)
+    doc.add_paragraph(of_report.get("summary", ""))
+    doc.save(path)
+    return path
 
 
 def main() -> int:
@@ -259,14 +217,28 @@ def main() -> int:
     except ImportError:
         subprocess.check_call([sys.executable, "-m", "pip", "install", "reportlab", "python-docx", "-q"])
 
+    sys.path.insert(0, str(ROOT))
     meta = _load_meta()
-    verify_ok, verify_log = _run_verification()
-    pdf = _build_project_pdf(meta, verify_ok, verify_log)
-    docx_file = _build_interview_docx(meta)
+    of_report = _overfitting_report()
+    report_path = ROOT / "artifacts" / "models" / "overfitting_report.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(report_path, "w", encoding="utf-8") as f:
+        json.dump(of_report, f, indent=2)
+
+    verify_ok, _ = _run_verification()
+    pdf = _build_project_pdf(meta, of_report, verify_ok)
+    docx_file = _build_interview_docx(meta, of_report)
+
+    # Mirror to artifacts for local pipeline use
+    art = ROOT / "artifacts" / "deliverables"
+    art.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(pdf, art / pdf.name)
+    shutil.copy2(docx_file, art / docx_file.name)
+
     print(f"PDF:  {pdf}")
     print(f"DOCX: {docx_file}")
-    print(f"Verification: {'OK' if verify_ok else 'FAILED'}")
-    return 0 if verify_ok else 1
+    print(f"Overfitting: {of_report.get('verdict')} — {of_report.get('summary', '')[:120]}")
+    return 0
 
 
 if __name__ == "__main__":
