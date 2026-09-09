@@ -57,6 +57,10 @@ SNIPER_CBM_PATH = "artifacts/models/trading_model_sniper_v5.cbm"
 
 # Historical GDELT: sample every N trading days, then forward-fill (rate-limit safe)
 SENTIMENT_BACKFILL_STRIDE = 20
+# Lite mode: cap API calls per ticker (avoids multi-hour full backfill)
+SENTIMENT_LITE_MAX_SAMPLES = 8
+SENTIMENT_LITE_RECENT_YEARS = 2
+SENTIMENT_LITE_STRIDE = 60
 
 MLFLOW_EXPERIMENT_TRAINING = "stock-ml-training"
 MLFLOW_EXPERIMENT_INFERENCE = "stock-analysis-pipeline"

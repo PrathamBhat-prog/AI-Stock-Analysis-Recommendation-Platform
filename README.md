@@ -13,7 +13,8 @@ Production-style stock analyser: **CatBoost Sniper v5** + **GDELT sentiment** + 
 | Feature | Implementation |
 |---------|----------------|
 | 20-day CatBoost production model (`.cbm`) | `src/models/sniper_trainer.py` → `artifacts/models/trading_model_sniper_v5.cbm` |
-| Historical GDELT sentiment backfill (training) | `src/data/sentiment_backfill.py`, SQLite `artifacts/sentiment.db` |
+| GDELT sentiment at **inference** (live headlines) | `src/data/news_fetcher.py` — default production path |
+| Optional historical GDELT backfill (slow) | `sentiment_mode=lite|full` — not required for training |
 | Optional FinBERT sentiment (local, no API key) | `SENTIMENT_BACKEND=finbert` when `transformers` installed |
 | Per-ticker chronological train/val/test splits | `src/data/splits.py` — 70% / 15% / 15% per ticker |
 | Walk-forward backtest + transaction costs | `src/backtest/walk_forward.py` — default 10 bps one-way |
@@ -89,9 +90,10 @@ Mount `./artifacts` and `./.cache` so trained `.cbm` models and GDELT caches per
 
 | Command | Description |
 |---------|-------------|
-| `python scripts/run_production_pipeline.py` | **Full production** — resumable GDELT cache + 10y train |
-| `python scripts/backfill_all_sentiment.py` | Pre-warm GDELT/SQLite cache only (resumable) |
-| `python train.py --strategy sniper --period 10y` | Train only — 32 tickers, GDELT backfill ON |
+| `python scripts/run_production_pipeline.py` | **Fast production (~30 min)** — 10y train + verify + PDF/DOCX |
+| `python train.py --strategy sniper --period 10y` | Same as above (default: `inference_only` sentiment) |
+| `python train.py --strategy sniper --sentiment-mode lite` | Optional: ~8 GDELT samples/ticker (1–2 hours) |
+| `python scripts/backfill_all_sentiment.py` | Slow full GDELT cache (overnight; only if you need historical sentiment in training) |
 | `python train.py --strategy sniper --no-gdelt-backfill` | Fast dev (neutral sentiment features) |
 | `python train.py --strategy sklearn --period 10y` | Compare **8** model candidates (7 tabular + LSTM), 20d labels |
 | `python train.py --strategy backtest --period 10y` | Walk-forward backtest (10 bps costs) |

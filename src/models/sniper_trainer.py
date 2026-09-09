@@ -44,17 +44,22 @@ def train_sniper(
     period: str = "10y",
     threshold: float = SNIPER_CONF_THRESHOLD,
     backfill_sentiment: bool = True,
+    sentiment_mode: str = "inference_only",
 ) -> dict:
     project_root = Path(__file__).resolve().parents[2]
     mlruns = project_root / "mlruns"
     mlflow.set_tracking_uri(f"file:///{mlruns}")
     mlflow.set_experiment(MLFLOW_EXPERIMENT_SNIPER)
 
-    logger.info("Building Sniper v5 dataset (GDELT backfill=%s) ...", backfill_sentiment)
+    logger.info(
+        "Building Sniper v5 dataset (sentiment_mode=%s, backfill=%s) ...",
+        sentiment_mode, backfill_sentiment,
+    )
     dataset = build_sniper_dataset(
         tickers=tickers,
         period=period,
         backfill_sentiment=backfill_sentiment,
+        sentiment_mode=sentiment_mode,
     )
     train_df, val_df, test_df = per_ticker_chronological_split(dataset)
 
@@ -97,8 +102,12 @@ def train_sniper(
         "test_rows": len(test_df),
         "tickers": tickers or "default",
         "split_method": "per_ticker_chronological",
-        "sentiment_backfill": backfill_sentiment,
-        "note": "GDELT historical sentiment sampled + forward-filled; live GDELT at inference.",
+        "sentiment_mode": sentiment_mode,
+        "sentiment_backfill": backfill_sentiment and sentiment_mode != "inference_only",
+        "note": (
+            "inference_only: train on price/VIX/momentum; live GDELT sentiment at inference. "
+            "lite/full: optional historical GDELT backfill (slow)."
+        ),
     }
     meta_path = Path(SNIPER_CBM_PATH).parent / "sniper_metadata.json"
     with open(meta_path, "w", encoding="utf-8") as f:

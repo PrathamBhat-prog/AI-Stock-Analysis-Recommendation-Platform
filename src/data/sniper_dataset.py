@@ -15,6 +15,9 @@ import yfinance as yf
 from src.config.ml_config import (
     DEFAULT_TRAIN_TICKERS,
     SENTIMENT_BACKFILL_STRIDE,
+    SENTIMENT_LITE_MAX_SAMPLES,
+    SENTIMENT_LITE_RECENT_YEARS,
+    SENTIMENT_LITE_STRIDE,
     SNIPER_FORECAST_HORIZON_DAYS,
     TRAIN_PERIOD,
 )
@@ -45,6 +48,7 @@ def _engineer_ticker_features(
     vix_df: pd.DataFrame,
     ticker: str,
     backfill_sentiment: bool = True,
+    sentiment_mode: str = "inference_only",
 ) -> pd.DataFrame:
     df = df.copy()
     df["Date"] = pd.to_datetime(df["Date"], utc=True).dt.tz_localize(None)
@@ -60,12 +64,17 @@ def _engineer_ticker_features(
     df["VIX"] = df["VIX"].ffill().fillna(20.0)
     df["vix_velocity"] = df["vix_velocity"].fillna(0.0)
 
-    df = attach_sentiment_features(
-        df,
-        ticker=ticker,
-        backfill=backfill_sentiment,
-        stride=SENTIMENT_BACKFILL_STRIDE,
-    )
+    bf = backfill_sentiment and sentiment_mode != "inference_only"
+    lite_kw = {}
+    if sentiment_mode == "lite":
+        lite_kw = {
+            "stride": SENTIMENT_LITE_STRIDE,
+            "max_samples": SENTIMENT_LITE_MAX_SAMPLES,
+            "recent_years": SENTIMENT_LITE_RECENT_YEARS,
+        }
+    elif bf:
+        lite_kw = {"stride": SENTIMENT_BACKFILL_STRIDE}
+    df = attach_sentiment_features(df, ticker=ticker, backfill=bf, **lite_kw)
     if "sent_vix_interaction" not in df.columns:
         df["sent_vix_interaction"] = df["rolling_sentiment_20d"] * df["VIX"]
 
@@ -80,6 +89,7 @@ def build_sniper_dataset(
     tickers: list[str] | None = None,
     period: str = TRAIN_PERIOD,
     backfill_sentiment: bool = True,
+    sentiment_mode: str = "inference_only",
 ) -> pd.DataFrame:
     tickers = tickers or DEFAULT_TRAIN_TICKERS
     vix_df = _fetch_vix_history(period)
@@ -90,7 +100,9 @@ def build_sniper_dataset(
             raw = fetch_stock_data(ticker=ticker, period=period)
             raw = validate_stock_data(raw)
             feat = _engineer_ticker_features(
-                raw, vix_df, ticker=ticker, backfill_sentiment=backfill_sentiment
+                raw, vix_df, ticker=ticker,
+                backfill_sentiment=backfill_sentiment,
+                sentiment_mode=sentiment_mode,
             )
             feat["ticker"] = ticker
             frames.append(feat)

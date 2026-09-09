@@ -42,10 +42,12 @@ def _train_sklearn(args) -> int:
 def _train_sniper(args) -> int:
     from src.models.sniper_trainer import train_sniper
 
+    mode = "inference_only" if args.no_gdelt_backfill else args.sentiment_mode
     meta = train_sniper(
         tickers=args.tickers,
         period=args.period,
-        backfill_sentiment=not args.no_gdelt_backfill,
+        backfill_sentiment=mode != "inference_only",
+        sentiment_mode="full" if mode == "full" else mode,
     )
     print("\n=== Sniper v5 Training Complete ===")
     print(json.dumps(meta, indent=2))
@@ -74,7 +76,13 @@ def main() -> int:
     parser.add_argument(
         "--no-gdelt-backfill",
         action="store_true",
-        help="Skip historical GDELT fetch during Sniper training (faster, neutral sentiment)",
+        help="Alias for --sentiment-mode inference_only (fast production default)",
+    )
+    parser.add_argument(
+        "--sentiment-mode",
+        choices=["inference_only", "lite", "full"],
+        default="inference_only",
+        help="inference_only=fast (~30min, live GDELT at runtime); lite=~8 samples/ticker; full=hours",
     )
     args = parser.parse_args()
 

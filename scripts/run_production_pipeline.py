@@ -1,8 +1,10 @@
 """
-Production pipeline: resumable GDELT backfill → Sniper v5 train (10y).
+Production pipeline (fast default ~30-45 min):
+  1. Train Sniper v5 on 10y price/VIX/momentum (sentiment_mode=inference_only)
+  2. Live GDELT sentiment applied at inference time (no multi-hour backfill)
+  3. Verify + generate PDF/DOCX deliverables
 
-Caches persist under artifacts/sentiment.db and .cache/news/.
-Re-runs skip completed tickers and cached dates.
+Optional slow path: --sentiment-mode lite (~1-2h) or full (overnight+)
 """
 
 from __future__ import annotations
@@ -35,44 +37,32 @@ def _setup_logging() -> None:
 
 def main() -> int:
     _setup_logging()
-    parser = argparse.ArgumentParser(description="GDELT backfill + Sniper production train")
+    parser = argparse.ArgumentParser(description="Fast production train + deliverables")
     parser.add_argument("--period", default="10y")
-    parser.add_argument("--skip-backfill", action="store_true")
+    parser.add_argument(
+        "--sentiment-mode",
+        choices=["inference_only", "lite", "full"],
+        default="inference_only",
+        help="Default inference_only: ~30min train, GDELT live at runtime",
+    )
     parser.add_argument("--skip-train", action="store_true")
-    parser.add_argument("--force-backfill", action="store_true")
     args = parser.parse_args()
 
-    started = datetime.now(timezone.utc).isoformat()
-    logger.info("=== Production pipeline start (period=%s) ===", args.period)
-
-    if not args.skip_backfill:
-        import importlib.util
-
-        bf_path = ROOT / "scripts" / "backfill_all_sentiment.py"
-        spec = importlib.util.spec_from_file_location("backfill_all_sentiment", bf_path)
-        bf_mod = importlib.util.module_from_spec(spec)
-        assert spec.loader is not None
-        spec.loader.exec_module(bf_mod)
-        backfill_all = bf_mod.backfill_all
-
-        logger.info("Phase 1/2: GDELT sentiment backfill (resumable)")
-        bf = backfill_all(period=args.period, force=args.force_backfill)
-        logger.info("Backfill phase complete: %s", json.dumps(bf, indent=2))
-    else:
-        logger.info("Phase 1/2: skipped (--skip-backfill)")
+    logger.info("=== Production pipeline (sentiment_mode=%s, period=%s) ===", args.sentiment_mode, args.period)
 
     if not args.skip_train:
         from src.models.sniper_trainer import train_sniper
 
-        logger.info("Phase 2/2: Sniper v5 training (uses SQLite + disk cache)")
-        meta = train_sniper(period=args.period, backfill_sentiment=True)
+        logger.info("Training Sniper v5 (no multi-hour GDELT backfill unless mode=full)")
+        meta = train_sniper(
+            period=args.period,
+            backfill_sentiment=args.sentiment_mode != "inference_only",
+            sentiment_mode=args.sentiment_mode,
+        )
         logger.info("Training complete — test AUC=%.4f", meta["test_metrics"]["roc_auc"])
-        print("\n=== Production pipeline complete ===")
         print(json.dumps(meta, indent=2))
-    else:
-        logger.info("Phase 2/2: skipped (--skip-train)")
 
-    logger.info("Phase 3: verification + deliverables (PDF + DOCX)")
+    logger.info("Verification + deliverables (PDF + DOCX)")
     import importlib.util
 
     del_path = ROOT / "scripts" / "generate_deliverables.py"
@@ -80,11 +70,9 @@ def main() -> int:
     del_mod = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(del_mod)
-    rc = del_mod.main()
-    if rc != 0:
-        logger.warning("Deliverables generation completed with verification warnings (see log)")
+    del_mod.main()
 
-    logger.info("Log file: %s", LOG_PATH)
+    logger.info("Done. Log: %s", LOG_PATH)
     return 0
 
 

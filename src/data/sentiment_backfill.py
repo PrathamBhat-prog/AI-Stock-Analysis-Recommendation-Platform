@@ -34,6 +34,8 @@ def backfill_ticker_sentiment(
     ticker: str,
     trading_dates: list[date],
     stride: int = SENTIMENT_BACKFILL_STRIDE,
+    max_samples: int | None = None,
+    recent_years: int | None = None,
 ) -> int:
     """
     Fetch GDELT for sampled dates. Returns number of new API-backed rows written.
@@ -41,8 +43,14 @@ def backfill_ticker_sentiment(
     dates = sorted({d if isinstance(d, date) else pd.Timestamp(d).date() for d in trading_dates})
     if not dates:
         return 0
+    if recent_years is not None and recent_years > 0:
+        cutoff = dates[-1] - timedelta(days=365 * recent_years)
+        dates = [d for d in dates if d >= cutoff]
     query = _query_for_ticker(ticker)
     sampled = dates[:: max(stride, 1)]
+    if max_samples is not None and len(sampled) > max_samples:
+        step = max(len(sampled) // max_samples, 1)
+        sampled = sampled[::step][:max_samples]
     if sampled[-1] != dates[-1]:
         sampled.append(dates[-1])
 
@@ -70,9 +78,14 @@ def attach_sentiment_features(
     ticker: str,
     backfill: bool = True,
     stride: int = SENTIMENT_BACKFILL_STRIDE,
+    max_samples: int | None = None,
+    recent_years: int | None = None,
 ) -> pd.DataFrame:
     """Optionally backfill GDELT, then attach rolling/lag sentiment columns from cache."""
     dates = pd.to_datetime(df["Date"]).dt.date.tolist()
     if backfill:
-        backfill_ticker_sentiment(ticker, dates, stride=stride)
+        backfill_ticker_sentiment(
+            ticker, dates, stride=stride,
+            max_samples=max_samples, recent_years=recent_years,
+        )
     return apply_sentiment_to_frame(df, ticker)
