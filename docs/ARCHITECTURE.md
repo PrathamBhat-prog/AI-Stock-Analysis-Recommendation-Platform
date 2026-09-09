@@ -23,7 +23,7 @@ Implementation: `src/data/sentiment_proxy.py` (train), `src/data/news_fetcher.py
 OHLCV + VIX → Features → CatBoost / Trend / Risk → Decision (horizon blend) → Sizing → API + Gradio
 ```
 
-Horizon keys are **trading days**, using the standard ~252-session year (so 126d ≈ six months of sessions, 252d ≈ one year of sessions). Long horizons are trend-dominated by design.
+As the requested look-ahead lengthens, the decision score places more weight on trend analysis. Keys are **trading sessions**: 126 ≈ six months of sessions, 252 ≈ one trading year.
 
 ## Overfitting controls
 

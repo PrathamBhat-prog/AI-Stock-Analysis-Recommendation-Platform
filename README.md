@@ -8,7 +8,7 @@
 > Past model metrics do not guarantee future results. Do not use this tool as the sole basis
 > for investment decisions. Consult a qualified financial professional before investing.
 
-Production-style research stack: **CatBoost Sniper v5** predicts ~10-trading-day direction from price, volume, VIX, and sentiment. A **decision layer** blends that ML score with trend and volatility-risk agents. Training uses a **reproducible sentiment proxy**; live analysis uses **GDELT headlines** (VADER or FinBERT). Served with FastAPI, Gradio, Docker, MLflow, and CI.
+**CatBoost Sniper v5** estimates the probability that a stock’s close is higher after about **10 trading sessions**, using price, volume, VIX, and sentiment features. A decision layer mixes that probability with trend analysis and a volatility-risk overlay, then suggests a position size. Training uses a market-derived sentiment proxy; live analysis scores **GDELT** headlines with VADER or FinBERT. The stack is FastAPI, Gradio, Docker, MLflow, and GitHub Actions.
 
 [![CI](https://github.com/PrathamBhat-prog/AI-Stock-Analysis-Recommendation-Platform/actions/workflows/ci.yml/badge.svg)](https://github.com/PrathamBhat-prog/AI-Stock-Analysis-Recommendation-Platform/actions/workflows/ci.yml)
 
@@ -21,49 +21,46 @@ Production-style research stack: **CatBoost Sniper v5** predicts ~10-trading-day
 | Capability | Details |
 |------------|---------|
 | **Sniper v5** (CatBoost `.cbm`) | Binary classifier: P(close higher in ~10 trading sessions) |
-| **Dual-path sentiment** | Train: market proxy + optional yfinance headlines. Serve: live GDELT + VADER/FinBERT |
-| **Multi-agent pipeline** | ML + trend (price-structure signals) + risk (realized vol) + horizon-weighted decision |
-| **Position sizing** | Inverse-volatility scaling, 10% base idea size, hard cap 20% |
-| **Honest horizons** | Keys are **trading days** (see below). Long views are trend-led, not an ML annual forecast |
-| **MLOps** | MLflow training logs, optional inference logging, Docker Compose, GitHub Actions pytest |
-| **Quality** | Per-ticker chronological splits, winsorization, validation-only threshold, walk-forward backtest script |
-| **Stack** | Free/open data and libraries — yfinance, GDELT, CatBoost, FastAPI, Gradio |
+| **Sentiment** | Training: price/volume proxy (+ optional yfinance headlines). Inference: live GDELT + VADER or FinBERT |
+| **Decision stack** | ML score + trend signals + realized-vol risk + horizon mix + inverse-vol sizing (10% base, 20% cap) |
+| **Horizons** | 5 / 21 / 63 / 126 / 252 **trading sessions** (standard equity calendar; see below) |
+| **MLOps** | MLflow on train, optional inference logging, Docker Compose, pytest CI |
+| **Evaluation** | Per-ticker chronological splits, winsorization, validation-only threshold, walk-forward backtest script |
+| **Data & libraries** | yfinance, GDELT, CatBoost, FastAPI, Gradio — no paid market-data APIs |
 
-Held-out metrics after each train live in `artifacts/models/sniper_metadata.json` and are shown in the Gradio model panel (not hardcoded).
-
-**Latest held-out test (32 tickers × 10y, proxy sentiment, threshold 0.43):** accuracy **53.8%**, precision **53.8%**, ROC-AUC **0.50**. Directional edge on public features is modest; the product is the pipeline and the honest horizon messaging, not a claim of market-beating alpha.
+**Held-out test** (32 tickers, 10 years, threshold 0.43): accuracy **53.8%**, precision **53.8%**, ROC-AUC **0.50**. After each training run these numbers are stored in `artifacts/models/sniper_metadata.json` and shown on the Gradio model panel.
 
 ---
 
-## What does the model predict?
+## What the model predicts
 
-The **ML model** answers one question: *is the close likely higher in about **10 trading days**?*
+Sniper v5 answers: *is the close likely higher in about **10 trading sessions**?*
 
-The **UI/API** also offers 5d / 21d / 63d / 126d / 252d views. Those are **not** five separate neural nets. They are the same 10-day probability **blended** with trend analysis, with ML weight falling as the horizon lengthens (`src/config/horizons.py`).
+The API and dashboard also expose **5, 21, 63, 126, and 252 session** views. Those views share the **same** classifier. Each view mixes the 10-session probability with trend analysis; as the requested look-ahead gets longer, trend receives more weight (`src/config/horizons.py`).
 
-### Why 5d, 21d, 63d, 126d, 252d (not arbitrary)
+### Horizon keys (trading sessions)
 
-US cash-equity practice counts **sessions**, not calendar dates. A typical year has about **252** trading days (weekends and market holidays excluded). That 252 figure is the same convention used to annualize volatility and Sharpe-style ratios.
+Equity work counts **sessions**, not calendar dates. A typical US cash-equity year has about **252** trading days (weekends and holidays excluded). The same 252 is used when annualizing volatility. The other keys follow that calendar:
 
-| Key | Trading sessions | Rough calendar analogue | Why this number |
-|-----|------------------|-------------------------|-----------------|
-| `5d` | 5 | ~1 week | One full trading week |
-| `21d` | 21 | ~1 month | ~252 / 12 |
-| `63d` | 63 | ~1 quarter | ~252 / 4 |
-| `126d` | 126 | ~6 months of sessions | **half of 252** — six months of market days, **not** 126 calendar days |
-| `252d` | 252 | ~1 year of sessions | **full trading year**, **not** 252 calendar days (~365) |
+| Key | Sessions | About | Derivation |
+|-----|----------|--------|------------|
+| `5d` | 5 | 1 week | Five consecutive sessions |
+| `21d` | 21 | 1 month | 252 / 12 |
+| `63d` | 63 | 1 quarter | 252 / 4 |
+| `126d` | 126 | 6 months | 252 / 2 |
+| `252d` | 252 | 1 year | Full trading year |
 
-So `126d` and `252d` look “round in base-10” only because they are **halves and the annual session count**, not because someone picked 126 at random.
+`126d` is six months of **market days** (~180 calendar days), not 126 calendar days. `252d` is one year of **market days** (~365 calendar days), not 252 calendar days.
 
-| Key | ML weight | Trend weight | Role |
-|-----|-----------|--------------|------|
-| `5d` | 80% | 20% | Short-term bias (closest in *spirit* to a short ML horizon) |
-| `21d` | 50% | 50% | **Default** — nearest product view to the 10-day training label |
-| `63d` | 30% | 70% | Trend-led quarter |
-| `126d` | 15% | 85% | Trend over ~6 months of sessions |
-| `252d` | 10% | 90% | Trend over ~1 year of sessions — **not** an ML annual price target |
+| Key | ML weight | Trend weight | Use |
+|-----|-----------|--------------|-----|
+| `5d` | 80% | 20% | Near-term bias |
+| `21d` | 50% | 50% | Default (closest product view to the 10-session label) |
+| `63d` | 30% | 70% | Quarter |
+| `126d` | 15% | 85% | Half-year of sessions |
+| `252d` | 10% | 90% | Full trading year |
 
-**Decision layer:** BUY if blended score ≥ 0.58, SELL if ≤ 0.42. High realized volatility can downgrade BUY → HOLD.
+**Decision rule:** BUY if the blended score ≥ 0.58, SELL if ≤ 0.42, otherwise HOLD. Elevated realized volatility can change BUY to HOLD.
 
 ---
 
@@ -72,14 +69,14 @@ So `126d` and `252d` look “round in base-10” only because they are **halves 
 ```
 Training:  yfinance OHLCV + ^VIX + sentiment proxy  →  CatBoost (.cbm)
 Inference: live OHLCV + VIX + GDELT headlines       →  same 10 features → P(up)
-Agents:    ML + Trend + Risk  →  horizon blend  →  inverse-vol size  →  FastAPI / Gradio
+Agents:    ML + Trend + Risk  →  horizon mix  →  inverse-vol size  →  FastAPI / Gradio
 ```
 
-**Training vs serving sentiment:** a 10-year daily news panel from public APIs is sparse and unstable. Training therefore uses a **backward-looking** price/volume proxy (plus at most one yfinance news blend per ticker). At inference, users get **current** GDELT (yfinance news fallback) scored with VADER, or FinBERT when `transformers` is installed (`SENTIMENT_BACKEND=auto`).
+**Sentiment.** Historical news coverage from public APIs is incomplete across a 10-year daily panel. Training therefore uses a backward-looking price/volume proxy (and at most one yfinance headline blend per ticker). At inference, current GDELT articles are scored (yfinance news as fallback). Set `SENTIMENT_BACKEND` to `vader`, `finbert`, or `auto`.
 
-**Features (10):** 20d momentum, distance from 52-week high, 20d rolling sentiment, 5d volume ratio, VIX, sentiment lags 1/3/5, sentiment×VIX, 5d VIX velocity.
+**Features (10):** 20-session momentum, distance from 52-week high, 20-session rolling sentiment, 5-session volume ratio, VIX, sentiment lags 1/3/5, sentiment × VIX, 5-session VIX velocity.
 
-**Universe:** 32 names (24 US + 8 India `.NS`) in `DEFAULT_TRAIN_TICKERS`.
+**Universe:** 32 listings (24 US + 8 India `.NS`) in `DEFAULT_TRAIN_TICKERS`.
 
 See [Architecture](docs/ARCHITECTURE.md).
 
@@ -102,14 +99,14 @@ pytest tests/ -v
 
 ```powershell
 uvicorn src.main:app --reload --port 8000    # OpenAPI: :8000/docs
-python -m src.ui.gradio_app                  # UI: :7860
+python -m src.ui.gradio_app                  # dashboard: :7860
 ```
 
 ```powershell
 docker compose up --build
 ```
 
-Trained weights are **not** stored in git (regenerate with `train.py`). `scripts/setup_model.py` copies a local `.cbm` if you already have one.
+Model files are produced by training (`python train.py --strategy sniper --period 10y`). They are not committed. `scripts/setup_model.py` copies a local `.cbm` if one is already on disk.
 
 ---
 
@@ -117,19 +114,19 @@ Trained weights are **not** stored in git (regenerate with `train.py`). `scripts
 
 | Command | Purpose |
 |---------|---------|
-| `python scripts/run_production_pipeline.py` | Train + print held-out metrics |
+| `python scripts/run_production_pipeline.py` | Train and print held-out metrics |
 | `python train.py --strategy sniper --period 10y` | Production CatBoost (`sentiment_mode=proxy`) |
-| `python train.py --strategy sklearn --period 10y` | Research: 8 candidates (7 tabular + LSTM), 20-day labels |
+| `python train.py --strategy sklearn --period 10y` | Research: 8 candidates (7 tabular + LSTM), 20-session labels |
 | `python train.py --strategy backtest --period 10y` | Walk-forward backtest (10 bps costs) |
 
 **Outputs:** `artifacts/models/trading_model_sniper_v5.cbm`, `sniper_metadata.json`.
 
 ### Split and regularisation
 
-- Per-ticker **chronological** 70/15/15 (no shuffle; each listing has its own past/future)
+- Per-ticker **chronological** 70/15/15 split (no shuffle)
 - CatBoost **early stopping** on validation AUC (`use_best_model=True`)
-- Feature **winsorization** at the 1st/99th percentile
-- Classification **threshold tuned on validation F1 only**; test is scored once at the end
+- Feature **winsorization** at the 1st and 99th percentiles
+- Classification threshold maximises **validation F1**; the test set is scored once at the end
 
 ---
 
@@ -138,7 +135,7 @@ Trained weights are **not** stored in git (regenerate with `train.py`). `scripts
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/health` | Health check |
-| GET | `/horizons` | Horizon weights, trading-day definitions, disclaimers |
+| GET | `/horizons` | Horizon definitions and mix weights |
 | POST | `/analyze` | Single ticker |
 | POST | `/analyze/batch` | Up to 20 tickers |
 
@@ -158,15 +155,15 @@ Trained weights are **not** stored in git (regenerate with `train.py`). `scripts
 
 | Path | Role |
 |------|------|
-| `src/data/sniper_dataset.py` | Features, 10-day labels, dataset build |
+| `src/data/sniper_dataset.py` | Features, labels, dataset build |
 | `src/data/sentiment_proxy.py` | Training-time sentiment |
-| `src/data/news_fetcher.py` | Live GDELT (+ fallback) |
-| `src/models/sniper_trainer.py` / `sniper_predictor.py` | Fit / load `.cbm` |
-| `src/agents/` | ML, trend, risk, decision blend |
-| `src/risk/position_sizer.py` | Inverse-vol suggestion |
-| `src/config/horizons.py` | Trading-day horizons (single source of truth) |
+| `src/data/news_fetcher.py` | Live GDELT |
+| `src/models/sniper_trainer.py` / `sniper_predictor.py` | Train / load `.cbm` |
+| `src/agents/` | ML, trend, risk, decision mix |
+| `src/risk/position_sizer.py` | Inverse-vol sizing |
+| `src/config/horizons.py` | Session-based horizons |
 | `src/main.py` | FastAPI |
-| `src/ui/gradio_app.py` | Dashboard (screenshot above) |
+| `src/ui/gradio_app.py` | Dashboard |
 | `tests/` | CI |
 
 ---
@@ -175,7 +172,7 @@ Trained weights are **not** stored in git (regenerate with `train.py`). `scripts
 
 | Document | Description |
 |----------|-------------|
-| [Architecture](docs/ARCHITECTURE.md) | Training vs inference paths |
+| [Architecture](docs/ARCHITECTURE.md) | Training and inference paths |
 
 ---
 
