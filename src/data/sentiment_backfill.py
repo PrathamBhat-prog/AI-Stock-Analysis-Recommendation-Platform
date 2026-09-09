@@ -47,7 +47,7 @@ def backfill_ticker_sentiment(
         sampled.append(dates[-1])
 
     written = 0
-    for day in sampled:
+    for i, day in enumerate(sampled, start=1):
         if get_sentiment(ticker, day) is not None:
             continue
         window_end = day
@@ -56,7 +56,12 @@ def backfill_ticker_sentiment(
         score = score_headlines(headlines)
         save_sentiment(ticker, day, score, len(headlines))
         written += 1
-    logger.info("%s GDELT backfill: %d new samples / %d sampled dates", ticker, written, len(sampled))
+        if i % 10 == 0 or i == len(sampled):
+            logger.info(
+                "%s GDELT backfill progress: %d/%d sampled dates (%d new writes)",
+                ticker, i, len(sampled), written,
+            )
+    logger.info("%s GDELT backfill complete: %d new samples / %d sampled dates", ticker, written, len(sampled))
     return written
 
 

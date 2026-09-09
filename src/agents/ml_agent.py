@@ -6,7 +6,6 @@ import logging
 import pandas as pd
 
 from src.models.sniper_predictor import SniperPredictor
-from src.models.predictor import StockDirectionPredictor
 
 logger = logging.getLogger(__name__)
 _NEUTRAL = {
@@ -27,8 +26,8 @@ class MLPredictionAgent:
     """
 
     def __init__(self):
-        self._sniper   = SniperPredictor()
-        self._fallback = StockDirectionPredictor()
+        self._sniper = SniperPredictor()
+        self._fallback = None
 
     def analyze(
         self,
@@ -46,7 +45,10 @@ class MLPredictionAgent:
             except Exception as exc:
                 logger.warning(f"Sniper v5 failed, falling back: {exc}")
 
-        # --- Fallback: original sklearn model ---
+        # --- Fallback: original sklearn/LSTM model (lazy — avoids torch import when unused) ---
+        if self._fallback is None:
+            from src.models.predictor import StockDirectionPredictor
+            self._fallback = StockDirectionPredictor()
         if self._fallback.is_available:
             try:
                 result = self._fallback.predict_latest(df)

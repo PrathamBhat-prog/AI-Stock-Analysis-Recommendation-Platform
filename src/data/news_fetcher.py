@@ -19,9 +19,11 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 GDELT_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
-GDELT_TIMEOUT = 10
+GDELT_TIMEOUT = 15
+GDELT_HISTORICAL_TIMEOUT = 45  # backfill windows are slower
 GDELT_RATE_SLEEP = 0.5   # seconds between requests (polite)
-GDELT_MAX_RETRIES = 3
+GDELT_HISTORICAL_SLEEP = 1.0
+GDELT_MAX_RETRIES = 5
 GDELT_CACHE_TTL_SECONDS = 60 * 60 * 6  # 6 hours
 CACHE_DIR = Path(__file__).parents[2] / ".cache" / "news"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -116,10 +118,10 @@ def fetch_gdelt_headlines_for_range(
         "format": "json",
         "sort": "datedesc",
     }
-    backoff = 1.0
+    backoff = 5.0
     for attempt in range(1, GDELT_MAX_RETRIES + 1):
         try:
-            r = requests.get(GDELT_URL, params=params, timeout=GDELT_TIMEOUT)
+            r = requests.get(GDELT_URL, params=params, timeout=GDELT_HISTORICAL_TIMEOUT)
             if r.status_code == 200:
                 articles = r.json().get("articles", [])
                 titles = [a.get("title", "") for a in articles if a.get("title")]
@@ -128,16 +130,28 @@ def fetch_gdelt_headlines_for_range(
                         json.dump({"ts": time.time(), "titles": titles}, fh)
                 except Exception:
                     pass
-                time.sleep(GDELT_RATE_SLEEP)
+                time.sleep(GDELT_HISTORICAL_SLEEP)
                 return titles
-            elif r.status_code == 429:
-                logger.warning("GDELT historical 429 query=%r attempt=%s", query, attempt)
-            else:
-                logger.warning("GDELT historical HTTP %s query=%r", r.status_code, query)
+            if r.status_code == 429:
+                wait = min(120.0, backoff * attempt)
+                logger.warning(
+                    "GDELT historical 429 query=%r attempt=%s — sleeping %.0fs",
+                    query, attempt, wait,
+                )
+                time.sleep(wait)
+                backoff *= 1.5
+                continue
+            logger.warning("GDELT historical HTTP %s query=%r", r.status_code, query)
         except Exception as exc:
             logger.warning("GDELT historical fetch failed for %r: %s", query, exc)
         time.sleep(backoff)
-        backoff *= 2
+        backoff *= 1.5
+    # Cache empty result so we do not hammer the same historical window again
+    try:
+        with cache_file.open("w", encoding="utf-8") as fh:
+            json.dump({"ts": time.time(), "titles": []}, fh)
+    except Exception:
+        pass
     return []
 
 

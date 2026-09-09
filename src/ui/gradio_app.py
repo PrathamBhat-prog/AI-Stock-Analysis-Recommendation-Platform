@@ -19,6 +19,7 @@ import gradio as gr
 
 from src.pipelines.inference_pipeline import StockAnalysisPipeline
 from src.config.horizons import HORIZONS, DEFAULT_HORIZON
+from src.ui.model_info import build_glossary_markdown, build_model_info_markdown
 from src.data.fetch_data import fetch_stock_data
 from src.data.validate_data import validate_stock_data
 from src.data.features import add_time_series_features
@@ -58,159 +59,8 @@ T_COLORS = {
 BG = "#0F172A"; PANEL = "#1E293B"; GRID = "#1E3A5F"
 BORDER = "#334155"; TEXT = "#E2E8F0"; MUTED = "#94A3B8"
 
-MODEL_INFO = """
-## 🎯 Sniper v5 Strategy — Optimized GDELT Sentiment Ensemble
-
-**Production Model:** CatBoostClassifier optimized for high-precision stock predictions
-
-### Core Strategy Overview
-- **Objective:** High-precision classification of **20-day stock price appreciation**
-- **Target Accuracy:** 55–60% (Achieved **59.32%** in final stable run)
-- **Target Precision:** >60% (Achieved **60.46%** using calibrated thresholding)
-- **Risk Management:** Inverse-Volatility Sizing reduced drawdown from -99% to -35%
-
-### 🧠 Primary Model — CatBoostClassifier
-**Algorithm:** CatBoost (Gradient Boosting on Decision Trees)
-```
-iterations = 1500
-learning_rate = 0.015
-depth = 7
-l2_leaf_reg = 8
-random_seed = 42
-use_best_model = True
-```
-
-#### Performance Metrics
-| Metric | Value |
-|--------|-------|
-| **Accuracy** | 59.32% |
-| **Precision** | 60.46% (calibrated threshold: 0.52) |
-| **Recall** | 58.9% |
-| **ROC-AUC** | 0.62 |
-
-> **Why CatBoost?** Superior at non-linear relationships, internal feature scaling, and handling categorical/continuous mixed data. Robust to outliers with built-in regularization.
-
-### ⚡ Feature Engineering — The Alpha Drivers
-
-#### 1. **Sentiment (GDELT)**
-- Live news headlines via GDELT Project API
-- vaderSentiment for CPU-efficient sentiment scoring
-- **20-day rolling sentiment** — current market narrative
-- **Lagged sentiment** (1, 3, 5 days) — captures delayed market reactions
-
-#### 2. **Macro Fear Index** (~21% feature importance)
-- **VIX price levels** — current market volatility regime
-- **VIX Velocity** — 5-day rate of change (indicates regime shifts)
-- **Interaction:** sent_vix_interaction = Sentiment × VIX (detects news impact during volatility spikes)
-
-#### 3. **Technical Alpha**
-- **dist_52w_high** — proximity to yearly highs (overhead resistance proxy)
-- **momentum_20d** — medium-term momentum
-- **vol_ratio_5d** — volume spikes relative to 5-day moving average
-
-#### 4. **Data Preprocessing**
-- **Winsorization** — clipping outliers at 1st/99th percentile
-- **Normalization** — CatBoost-handled internally
-- **Target Horizon** — 20-day forward-return binary labels
-
-### 🔑 Key Technical Breakthroughs
-
-**The 52% Barrier → 59.32% Breakthrough:**
-1. **Moved from 1-day to 20-day horizons** — captures real trading opportunity windows
-2. **Added VIX velocity** — market regime matters more than individual stock momentum
-3. **Implemented Winsorization** — extreme outliers cause overfitting
-4. **Calibrated probability threshold to 0.52** — reduces coverage but increases precision to 60%+ (viable after transaction costs)
-
-**Risk Management:**
-- Position Sizing = 10% × (Target Volatility / Historical Volatility)
-- Inverse-volatility scaling reduces portfolio drawdown significantly
-
-### 📊 Investment Horizon Blending (honest weights)
-| Horizon | ML Weight | Trend Weight | Use Case |
-|---------|-----------|-------------|----------|
-| 1 Week  | 80% | 20% | Short-term traders |
-| 1 Month | 50% | 50% | Closest to 20-day ML training |
-| 3 Months| 30% | 70% | Swing / position investors |
-| 6 Months| 15% | 85% | Trend regime |
-| 1 Year  | 10% | 90% | Long-term trend (not ML annual forecast) |
-
-### 🛡️ Trend Analysis Agent (Supplements ML)
-- **6 signals:** MA alignment, RSI, MACD crossover, Bollinger Band position, momentum, volume
-- **Trend score:** [-1, +1] for ANY ticker without retraining
-- **Use:** Validates ML signal for longer horizons
-"""
-
-GLOSSARY = """
-## 📌 Sniper v5 Signals & Meanings
-
-### BUY / SELL / HOLD Signals
-| Signal | Meaning | Confidence |
-|--------|---------|------------|
-| **BUY** | CatBoost predicts 20-day appreciation + trend confirmation | Confidence % shown |
-| **SELL** | CatBoost predicts 20-day depreciation + trend alignment | Confidence % shown |
-| **HOLD** | Conflicting signals or low ML probability (<52%) | Safer to wait |
-
-> **Sweet Spot:** Probability threshold of **0.52** maximizes precision (~60%) while reducing false positives.
-
-### Feature Importance
-| Feature | Importance | What It Means |
-|---------|------------|---------------|
-| **VIX Velocity** | ~21% | Market regime changes matter more than stock momentum |
-| **GDELT Sentiment** | ~18% | News sentiment drives short-term moves |
-| **sent_vix_interaction** | ~15% | News impact is strongest during volatility spikes |
-| **dist_52w_high** | ~12% | Proximity to yearly highs signals overhead resistance |
-| **momentum_20d** | ~11% | Medium-term momentum persists |
-| **vol_ratio_5d** | ~8% | Volume spikes validate trend changes |
-
-### Trend Labels (Trend Agent)
-| Trend | Meaning | ML Interaction |
-|-------|---------|-----------------|
-| **Strong Uptrend** | Consistently rising -- buyers in control | Reinforces BUY |
-| **Uptrend** | Gradually rising | Supports BUY |
-| **Sideways** | No clear direction -- consolidating | Increases HOLD |
-| **Downtrend** | Gradually falling | Supports SELL |
-| **Strong Downtrend** | Consistently falling -- sellers in control | Reinforces SELL |
-
-### Key Concepts
-
-#### GDELT Sentiment
-- **Positive:** News headlines suggest bullish sentiment → higher probability of appreciation
-- **Negative:** Bearish headlines → lower probability
-- **Lagged:** Headlines today affect price movements over next 1-5 days (not immediate)
-
-#### VIX (Market Fear Index)
-- **High VIX:** Market stress → volatility spikes (use reduced position sizes)
-- **Low VIX:** Calm market → normal position sizes
-- **VIX Velocity:** Rate of VIX change signals market regime shift
-
-#### Calibration Threshold (0.52)
-- ML model outputs probability [0.0 → 1.0]
-- **Threshold 0.50:** Captures all signals (high recall, low precision ~43%)
-- **Threshold 0.52:** Sweet spot achieving **60% precision** (viable after costs)
-- **Threshold 0.55+:** Higher precision but misses opportunities
-
-#### Risk Management
-- **Position Sizing Formula:** PositionSize = 10% × (TargetVolatility / HistoricalVolatility)
-- **Effect:** Automatically reduces bet size when stock is volatile
-- **Result:** Reduced drawdown from -99% (unmanaged) to -35% (managed)
-
-### Investment Horizons
-| Horizon | Use Case | ML Contribution |
-|---------|----------|------------------|
-| **1 Week** | Short-term bias | 80% |
-| **1 Month** | Swing entry timing | 50% |
-| **3 Months** | Medium-term trend | 30% |
-| **6 Months** | Position investing | 15% |
-| **1 Year** | Trend direction only | 10% |
-
----
-## ⚠️ Important
-
-> **Disclaimer:** Sniper v5 is a research/education project. Not financial advice.  
-> Past performance does not guarantee future results.  
-> Always consult a qualified financial advisor before investing.  
-> Use at your own risk.
-"""
+MODEL_INFO = build_model_info_markdown()
+GLOSSARY = build_glossary_markdown()
 
 
 # ============================================================================

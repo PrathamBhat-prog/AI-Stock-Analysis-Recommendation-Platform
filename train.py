@@ -69,7 +69,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Train stock ML models")
     parser.add_argument("--strategy", choices=["sklearn", "sniper", "backtest"], default="sklearn")
     parser.add_argument("--tickers", nargs="+", default=None)
-    parser.add_argument("--period", default="5y")
+    parser.add_argument("--period", default="10y", help="yfinance history window (production default: 10y)")
     parser.add_argument("--models", nargs="+", default=None)
     parser.add_argument(
         "--no-gdelt-backfill",
