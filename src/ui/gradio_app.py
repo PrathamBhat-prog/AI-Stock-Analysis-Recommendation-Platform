@@ -124,14 +124,14 @@ use_best_model = True
 - Position Sizing = 10% × (Target Volatility / Historical Volatility)
 - Inverse-volatility scaling reduces portfolio drawdown significantly
 
-### 📊 Investment Horizon Blending
+### 📊 Investment Horizon Blending (honest weights)
 | Horizon | ML Weight | Trend Weight | Use Case |
 |---------|-----------|-------------|----------|
-| 20 days | 100% | 0% | Pure ML signal (trained for this) |
-| 1 Month | 80% | 20% | Short-term traders |
-| 3 Months| 50% | 50% | Swing traders |
-| 6 Months| 20% | 80% | Long-term investors |
-| 1 Year  | 10% | 90% | Buy-and-hold investors |
+| 1 Week  | 80% | 20% | Short-term traders |
+| 1 Month | 50% | 50% | Closest to 20-day ML training |
+| 3 Months| 30% | 70% | Swing / position investors |
+| 6 Months| 15% | 85% | Trend regime |
+| 1 Year  | 10% | 90% | Long-term trend (not ML annual forecast) |
 
 ### 🛡️ Trend Analysis Agent (Supplements ML)
 - **6 signals:** MA alignment, RSI, MACD crossover, Bollinger Band position, momentum, volume
@@ -196,11 +196,11 @@ GLOSSARY = """
 ### Investment Horizons
 | Horizon | Use Case | ML Contribution |
 |---------|----------|------------------|
-| **20 days** | Capture ML signal (model trained for this) | 100% |
-| **1 Month** | Short-term traders | 80% |
-| **3 Months** | Swing traders | 50% |
-| **6 Months** | Longer-term investors | 20% |
-| **1 Year** | Buy-and-hold | 10% |
+| **1 Week** | Short-term bias | 80% |
+| **1 Month** | Swing entry timing | 50% |
+| **3 Months** | Medium-term trend | 30% |
+| **6 Months** | Position investing | 15% |
+| **1 Year** | Trend direction only | 10% |
 
 ---
 ## ⚠️ Important
