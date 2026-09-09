@@ -16,6 +16,8 @@ mlruns/
 
 # Runtime artifacts
 decision.json
+decision_*.json
+.cache/
 
 # OS
 .DS_Store

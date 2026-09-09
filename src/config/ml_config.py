@@ -2,8 +2,8 @@
 ML training and inference configuration.
 
 Horizon alignment:
-  - SNIPER_FORECAST_HORIZON_DAYS = 20 (production CatBoost model)
-  - FORECAST_HORIZON_DAYS = 5 (legacy sklearn/LSTM pipeline for comparison)
+  Both Sniper v5 and the sklearn/LSTM research pipeline use a 20-trading-day
+  direction label so research comparisons match production.
 """
 
 # Expanded universe for training rows
@@ -15,7 +15,7 @@ DEFAULT_TRAIN_TICKERS = [
     "ICICIBANK.NS", "BHARTIARTL.NS", "ITC.NS", "SBIN.NS",
 ]
 
-FORECAST_HORIZON_DAYS = 5
+FORECAST_HORIZON_DAYS = 20
 SNIPER_FORECAST_HORIZON_DAYS = 20
 TRAIN_PERIOD = "10y"
 TARGET_MIN_ROWS = 25_000
@@ -53,6 +53,10 @@ MODEL_METADATA_PATH = "artifacts/models/model_metadata.json"
 FEATURE_IMPORTANCE_PATH = "artifacts/models/feature_importance.csv"
 BENCHMARK_REPORT_PATH = "artifacts/models/benchmark_comparison.json"
 SNIPER_MODEL_PATH = "artifacts/models/trading_model_sniper_v5.pkl"
+SNIPER_CBM_PATH = "artifacts/models/trading_model_sniper_v5.cbm"
+
+# Historical GDELT: sample every N trading days, then forward-fill (rate-limit safe)
+SENTIMENT_BACKFILL_STRIDE = 20
 
 MLFLOW_EXPERIMENT_TRAINING = "stock-ml-training"
 MLFLOW_EXPERIMENT_INFERENCE = "stock-analysis-pipeline"

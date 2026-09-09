@@ -1,16 +1,34 @@
 version: "3.9"
 
 services:
-  stock-analyser:
+  api:
     build: .
-    container_name: stock-analyser-app
+    container_name: stock-analyser-api
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    environment:
+      ENABLE_INFERENCE_MLFLOW: "false"
+      SENTIMENT_BACKEND: vader
+    volumes:
+      - ./artifacts:/app/artifacts
+      - ./.cache:/app/.cache
+    restart: unless-stopped
+
+  ui:
+    build: .
+    container_name: stock-analyser-ui
+    command: python -m src.ui.gradio_app
     ports:
       - "7860:7860"
+    environment:
+      ENABLE_INFERENCE_MLFLOW: "false"
+      SENTIMENT_BACKEND: vader
     volumes:
-      - ./mlruns:/app/mlruns
       - ./artifacts:/app/artifacts
+      - ./.cache:/app/.cache
     depends_on:
-      - mlflow
+      - api
     restart: unless-stopped
 
   mlflow:

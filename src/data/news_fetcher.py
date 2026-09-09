@@ -9,7 +9,7 @@ Sources (in priority order):
 from __future__ import annotations
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 
 import requests
 import hashlib
@@ -86,6 +86,61 @@ def fetch_gdelt_headlines(query: str, days_back: int = 3) -> list[str]:
     return []
 
 
+def fetch_gdelt_headlines_for_range(
+    query: str,
+    start: date,
+    end: date,
+) -> list[str]:
+    """
+    Historical GDELT query for a closed date window (UTC).
+    Cached on disk; past news does not change.
+    """
+    start_s = start.strftime("%Y%m%d000000")
+    end_s = end.strftime("%Y%m%d235959")
+    cache_key = hashlib.sha256(f"{query}|{start_s}|{end_s}".encode("utf-8")).hexdigest()
+    cache_file = CACHE_DIR / f"hist_{cache_key}.json"
+    if cache_file.exists():
+        try:
+            with cache_file.open("r", encoding="utf-8") as fh:
+                payload = json.load(fh)
+            return payload.get("titles", [])
+        except Exception:
+            pass
+
+    params = {
+        "query": query,
+        "mode": "artlist",
+        "maxrecords": 50,
+        "startdatetime": start_s,
+        "enddatetime": end_s,
+        "format": "json",
+        "sort": "datedesc",
+    }
+    backoff = 1.0
+    for attempt in range(1, GDELT_MAX_RETRIES + 1):
+        try:
+            r = requests.get(GDELT_URL, params=params, timeout=GDELT_TIMEOUT)
+            if r.status_code == 200:
+                articles = r.json().get("articles", [])
+                titles = [a.get("title", "") for a in articles if a.get("title")]
+                try:
+                    with cache_file.open("w", encoding="utf-8") as fh:
+                        json.dump({"ts": time.time(), "titles": titles}, fh)
+                except Exception:
+                    pass
+                time.sleep(GDELT_RATE_SLEEP)
+                return titles
+            elif r.status_code == 429:
+                logger.warning("GDELT historical 429 query=%r attempt=%s", query, attempt)
+            else:
+                logger.warning("GDELT historical HTTP %s query=%r", r.status_code, query)
+        except Exception as exc:
+            logger.warning("GDELT historical fetch failed for %r: %s", query, exc)
+        time.sleep(backoff)
+        backoff *= 2
+    return []
+
+
 def fetch_yfinance_headlines(ticker: str) -> list[str]:
     """
     Fetch recent headlines from yfinance (fallback).
@@ -93,7 +148,7 @@ def fetch_yfinance_headlines(ticker: str) -> list[str]:
     """
     try:
         import yfinance as yf
-        news   = yf.Ticker(ticker).news or []
+        news = yf.Ticker(ticker).news or []
         titles = [n.get("title", "") for n in news[:30] if n.get("title")]
         logger.info(f"yfinance: {len(titles)} headlines for {ticker}")
         return titles

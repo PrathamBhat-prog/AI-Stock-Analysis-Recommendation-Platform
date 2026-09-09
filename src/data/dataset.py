@@ -6,10 +6,18 @@ from src.config.ml_config import DEFAULT_TRAIN_TICKERS, FORECAST_HORIZON_DAYS, T
 from src.data.fetch_data import fetch_stock_data
 from src.data.features import add_technical_indicators
 from src.data.labeling import add_direction_label
+from src.data.splits import chronological_split, per_ticker_chronological_split
 from src.data.validate_data import validate_stock_data
 from src.models.feature_columns import FEATURE_COLUMNS, TARGET_COLUMN
 
 logger = logging.getLogger(__name__)
+
+__all__ = [
+    "build_ticker_dataset",
+    "build_training_dataset",
+    "chronological_split",
+    "per_ticker_chronological_split",
+]
 
 
 def build_ticker_dataset(ticker: str, period: str = TRAIN_PERIOD) -> pd.DataFrame:
@@ -26,10 +34,7 @@ def build_training_dataset(
     tickers: list[str] | None = None,
     period: str = TRAIN_PERIOD,
 ) -> pd.DataFrame:
-    """
-    Build pooled multi-ticker dataset for ML training.
-    Rows with missing features are dropped.
-    """
+    """Build pooled multi-ticker dataset for ML training."""
     tickers = tickers or DEFAULT_TRAIN_TICKERS
     frames: list[pd.DataFrame] = []
 
@@ -46,31 +51,9 @@ def build_training_dataset(
 
     combined = pd.concat(frames, ignore_index=True)
     combined["Date"] = pd.to_datetime(combined["Date"], utc=True).dt.tz_localize(None)
-    combined = combined.sort_values("Date").reset_index(drop=True)
+    combined = combined.sort_values(["ticker", "Date"]).reset_index(drop=True)
 
     required = FEATURE_COLUMNS + [TARGET_COLUMN]
     combined = combined.dropna(subset=required)
 
     return combined
-
-
-def chronological_split(
-    df: pd.DataFrame,
-    train_ratio: float = 0.70,
-    val_ratio: float = 0.15,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """
-    Time-ordered split to avoid lookahead leakage.
-    """
-    n = len(df)
-    train_end = int(n * train_ratio)
-    val_end = int(n * (train_ratio + val_ratio))
-
-    train_df = df.iloc[:train_end].copy()
-    val_df = df.iloc[train_end:val_end].copy()
-    test_df = df.iloc[val_end:].copy()
-
-    if len(train_df) == 0 or len(val_df) == 0 or len(test_df) == 0:
-        raise ValueError("Split produced an empty partition; use more data or adjust ratios.")
-
-    return train_df, val_df, test_df

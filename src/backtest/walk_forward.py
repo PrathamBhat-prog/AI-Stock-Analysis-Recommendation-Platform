@@ -44,13 +44,18 @@ def run_walk_forward_backtest(
     n_splits: int = 3,
     transaction_cost: float = DEFAULT_TRANSACTION_COST,
     threshold: float = SNIPER_CONF_THRESHOLD,
+    backfill_sentiment: bool = True,
 ) -> dict:
     """
     Simple walk-forward: divide timeline into n_splits+1 chunks;
     train on cumulative past, test on next chunk.
     """
-    dataset = build_sniper_dataset(tickers=tickers, period=period)
-    dataset = dataset.sort_values("Date").reset_index(drop=True)
+    dataset = build_sniper_dataset(
+        tickers=tickers,
+        period=period,
+        backfill_sentiment=backfill_sentiment,
+    )
+    dataset = dataset.sort_values(["ticker", "Date"]).reset_index(drop=True)
     n = len(dataset)
     chunk = n // (n_splits + 1)
 
@@ -72,7 +77,6 @@ def run_walk_forward_backtest(
         x_train = train_df[SNIPER_FEATURE_COLS]
         y_train = train_df["target_up"].astype(int)
         x_test = test_df[SNIPER_FEATURE_COLS]
-        y_test = test_df["target_up"].astype(int)
 
         model = CatBoostClassifier(**params)
         model.fit(x_train, y_train, verbose=False)

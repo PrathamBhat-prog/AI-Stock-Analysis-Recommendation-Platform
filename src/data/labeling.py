@@ -3,7 +3,7 @@ import pandas as pd
 
 def add_direction_label(
     df: pd.DataFrame,
-    horizon: int = 5,
+    horizon: int = 20,
     target_col: str = "target_up",
 ) -> pd.DataFrame:
     """

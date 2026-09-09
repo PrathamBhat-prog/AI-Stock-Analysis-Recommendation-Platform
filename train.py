@@ -2,9 +2,10 @@
 Train ML models for stock direction prediction.
 
 Usage:
-    python train.py                              # sklearn/LSTM comparison (5d horizon)
-    python train.py --strategy sniper            # Sniper v5 CatBoost (20d horizon)
-    python train.py --strategy backtest          # walk-forward backtest only
+    python train.py --strategy sklearn              # 8 models + LSTM (20d labels)
+    python train.py --strategy sniper               # CatBoost Sniper v5 (production)
+    python train.py --strategy sniper --no-gdelt-backfill  # fast dev (neutral sentiment)
+    python train.py --strategy backtest             # walk-forward backtest
     python train.py --tickers AAPL MSFT --period 5y
 """
 import argparse
@@ -30,7 +31,7 @@ def _train_sklearn(args) -> int:
     )
     meta = result["metadata"]
     ds = meta["dataset_size"]
-    print("\n=== Training Complete (sklearn/LSTM) ===")
+    print("\n=== Training Complete (sklearn/LSTM, 20d labels) ===")
     print(f"Dataset: {ds['total_rows']} rows from {ds['tickers']} tickers")
     print(f"Best model: {result['best_model']}")
     pm = result["primary_metric"]
@@ -41,7 +42,11 @@ def _train_sklearn(args) -> int:
 def _train_sniper(args) -> int:
     from src.models.sniper_trainer import train_sniper
 
-    meta = train_sniper(tickers=args.tickers, period=args.period)
+    meta = train_sniper(
+        tickers=args.tickers,
+        period=args.period,
+        backfill_sentiment=not args.no_gdelt_backfill,
+    )
     print("\n=== Sniper v5 Training Complete ===")
     print(json.dumps(meta, indent=2))
     return 0
@@ -50,7 +55,11 @@ def _train_sniper(args) -> int:
 def _run_backtest(args) -> int:
     from src.backtest.walk_forward import run_walk_forward_backtest
 
-    result = run_walk_forward_backtest(tickers=args.tickers, period=args.period)
+    result = run_walk_forward_backtest(
+        tickers=args.tickers,
+        period=args.period,
+        backfill_sentiment=not args.no_gdelt_backfill,
+    )
     print("\n=== Walk-Forward Backtest ===")
     print(json.dumps(result, indent=2))
     return 0
@@ -62,6 +71,11 @@ def main() -> int:
     parser.add_argument("--tickers", nargs="+", default=None)
     parser.add_argument("--period", default="5y")
     parser.add_argument("--models", nargs="+", default=None)
+    parser.add_argument(
+        "--no-gdelt-backfill",
+        action="store_true",
+        help="Skip historical GDELT fetch during Sniper training (faster, neutral sentiment)",
+    )
     args = parser.parse_args()
 
     try:

@@ -4,18 +4,16 @@
 from __future__ import annotations
 
 import logging
-import os
-import pickle
 from datetime import date
 
 import pandas as pd
 import yfinance as yf
 
 from src.config.ml_config import SNIPER_CONF_THRESHOLD
-from src.config.settings import settings
 from src.data.news_fetcher import fetch_headlines
 from src.data.sentiment_cache import build_sentiment_features, save_sentiment
-from src.data.sentiment_scorer import score_headlines_vader
+from src.data.sentiment_scorer import score_headlines, _backend
+from src.models.model_io import load_catboost_model, resolve_sniper_model_path
 
 logger = logging.getLogger(__name__)
 
@@ -24,18 +22,6 @@ FEATURE_COLS = [
     "vol_ratio_5d", "VIX", "sent_lag_1", "sent_lag_3",
     "sent_lag_5", "sent_vix_interaction", "vix_velocity",
 ]
-
-
-def _resolve_model_path() -> str:
-    candidates = [
-        settings.SNIPER_MODEL_PATH,
-        os.path.join("artifacts", "models", "trading_model_sniper_v5.pkl"),
-        "trading_model_sniper_v5.pkl",
-    ]
-    for path in candidates:
-        if path and os.path.exists(path):
-            return path
-    return settings.SNIPER_MODEL_PATH
 
 
 def _fetch_vix() -> tuple[float, float]:
@@ -50,7 +36,7 @@ def _fetch_vix() -> tuple[float, float]:
 
 
 def _safe_float(val: float, default: float = 0.0) -> float:
-    return default if val != val else float(val)  # NaN check
+    return default if val != val else float(val)
 
 
 def _build_ohlcv_features(df: pd.DataFrame) -> dict:
@@ -71,22 +57,16 @@ def _build_ohlcv_features(df: pd.DataFrame) -> dict:
 class SniperPredictor:
     def __init__(self):
         self._model = None
-        self._model_path = _resolve_model_path()
+        self._model_path = resolve_sniper_model_path()
 
     @property
     def is_available(self) -> bool:
-        return os.path.exists(self._model_path)
+        return self._model_path is not None
 
     def _load(self):
         if self._model is None:
-            if not self.is_available:
-                raise FileNotFoundError(
-                    f"Sniper v5 model not found. Tried: {_resolve_model_path()}. "
-                    "Run: python train.py --strategy sniper"
-                )
-            with open(self._model_path, "rb") as f:
-                self._model = pickle.load(f)
-            logger.info("Sniper v5 loaded from %s", self._model_path)
+            self._model = load_catboost_model(self._model_path)
+            self._model_path = resolve_sniper_model_path()
 
     def predict(self, ticker: str, df: pd.DataFrame, company_name: str = "") -> dict:
         if df is None or len(df) < 30:
@@ -96,7 +76,7 @@ class SniperPredictor:
         self._load()
         vix, vix_vel = _fetch_vix()
         headlines = fetch_headlines(ticker, company_name)
-        sent_score = score_headlines_vader(headlines)
+        sent_score = score_headlines(headlines)
         today = date.today()
         save_sentiment(ticker, today, sent_score, len(headlines))
 
@@ -134,8 +114,10 @@ class SniperPredictor:
             "above_threshold": proba_up >= threshold,
             "threshold": threshold,
             "model_name": "CatBoost Sniper v5",
+            "model_path": self._model_path,
             "forecast_horizon_days": 20,
             "sentiment_score": round(sent_score, 4),
+            "sentiment_backend": _backend(),
             "vix": round(vix, 2),
             "vix_velocity": round(vix_vel, 4),
             "headline_count": len(headlines),
@@ -143,6 +125,6 @@ class SniperPredictor:
             "feature_vector": row,
             "reason": (
                 f"CatBoost Sniper v5: {proba_up:.1%} P(up) in ~20 trading days. "
-                f"Sentiment {sent_score:+.3f}, VIX {vix:.1f}."
+                f"Sentiment {_backend()} {sent_score:+.3f}, VIX {vix:.1f}."
             ),
         }

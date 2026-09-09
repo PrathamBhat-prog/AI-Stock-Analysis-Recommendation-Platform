@@ -13,7 +13,8 @@ from src.config.ml_config import (
     TRAIN_RATIO,
     VAL_RATIO,
 )
-from src.data.dataset import build_training_dataset, chronological_split
+from src.data.dataset import build_training_dataset
+from src.data.splits import per_ticker_chronological_split
 from src.models.trainer import save_best_model, train_and_compare
 
 logger = logging.getLogger(__name__)
@@ -51,7 +52,7 @@ class TrainingPipeline:
 
         logger.info("Building dataset from %d tickers ...", len(tickers))
         dataset = build_training_dataset(tickers=tickers, period=period)
-        train_df, val_df, test_df = chronological_split(
+        train_df, val_df, test_df = per_ticker_chronological_split(
             dataset, train_ratio=TRAIN_RATIO, val_ratio=VAL_RATIO
         )
 

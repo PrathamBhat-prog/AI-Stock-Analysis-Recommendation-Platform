@@ -18,42 +18,47 @@ yfinance (OHLCV) ──┬──► Feature engineering (unified features.py)
 GDELT / yfinance   │         │
 news (free)        │         ├──► Trend Agent
 ^VIX               │         ├──► Risk Agent
-                   │         └──► Sniper v5 CatBoost (10 features)
+                   │         └──► Sniper v5 CatBoost (.cbm)
                    │
-                   └──► Decision Agent (horizon-weighted blend)
+Historical GDELT ──┴──► SQLite sentiment cache (training backfill)
                               │
+                              ├──► Decision Agent (horizon-weighted blend)
                               ├──► Position sizing (inverse vol)
-                              └──► API / Gradio
+                              └──► FastAPI / Gradio
 ```
 
-## Why these choices (interview)
+## Resolved design items
 
-- **CatBoost over XGBoost/LightGBM for Sniper:** robust defaults, handles mixed features, strong on tabular finance data without heavy tuning.
-- **VADER over FinBERT/GPT:** free, CPU-only, no API cost; upgrade path documented.
-- **GDELT:** free global news; cached to respect rate limits.
-- **Trend blend for long horizons:** honest UX — don't pretend a 20-day model forecasts 1 year.
-- **Chronological split / walk-forward:** prevents lookahead leakage in time series.
-- **MLflow:** experiment tracking without paid MLOps platforms.
+| Item | Implementation |
+|------|----------------|
+| Unified 20-day labels | `FORECAST_HORIZON_DAYS = 20` for sklearn + Sniper |
+| Per-ticker train/val/test split | `per_ticker_chronological_split()` |
+| Historical GDELT training | `sentiment_backfill.py` + SQLite cache |
+| FinBERT upgrade | Optional `SENTIMENT_BACKEND=finbert` (free, local) |
+| CatBoost native format | `.cbm` via `model_io.py`; pickle legacy supported |
+| Inference MLflow overhead | `ENABLE_INFERENCE_MLFLOW=false` by default |
+| Docker API + UI | `docker-compose.yml` runs both services |
 
 ## Training commands
 
 ```bash
-python train.py --strategy sniper --period 5y    # production model
-python train.py --strategy sklearn --period 5y   # research comparison
-python train.py --strategy backtest --period 5y  # walk-forward with costs
+python train.py --strategy sniper --period 5y
+python train.py --strategy sniper --no-gdelt-backfill   # fast dev
+python train.py --strategy sklearn --period 5y
+python train.py --strategy backtest --period 5y
+python scripts/backfill_sentiment.py AAPL --period 5y
 ```
 
-## Audit notes (code review)
+## Why these choices (interview)
 
-| Item | Status |
-|------|--------|
-| Unified `features.py` for train + inference + trend | Done |
-| Horizon honesty in API/UI | Done |
-| Risk + position sizing wired | Done |
-| In-repo Sniper training | Done |
-| Walk-forward backtest (non-overlapping trades) | Done |
-| CI + pytest | Done |
-| Gradio default horizon = 1 month (`21d`) | Done |
-| Historical GDELT backfill for training | Future work |
-| FinBERT sentiment upgrade | Future work |
-| Per-ticker chronological splits | Future work |
+- **CatBoost over XGBoost/LightGBM for Sniper:** robust defaults, strong tabular performance.
+- **VADER default / FinBERT optional:** free, reproducible; FinBERT when `transformers` installed.
+- **GDELT sampled backfill:** respects rate limits; forward-fill between samples.
+- **Per-ticker splits:** prevents newer listings from leaking entire history into test.
+- **`.cbm` over pickle:** safer versioning, native CatBoost format.
+
+## Remaining optional upgrades
+
+- Sector-specific models
+- Real-time alerting
+- Portfolio upload mode (intentionally skipped)
