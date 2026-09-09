@@ -1,17 +1,20 @@
+"""Application settings (environment variables). No paid API keys required."""
+
 import os
 from dotenv import load_dotenv
 
-# Load variables from .env into Python
 load_dotenv()
 
 
 class Settings:
-    ENVIRONMENT = os.getenv("ENVIRONMENT")
-    STOCK_DATA_PROVIDER = os.getenv("STOCK_DATA_PROVIDER")
-
-    # Gemini
-    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-    GEMINI_MODEL = os.getenv("GEMINI_MODEL")
+    ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
+    STOCK_DATA_PROVIDER: str = os.getenv("STOCK_DATA_PROVIDER", "yfinance")
+    SNIPER_MODEL_PATH: str = os.getenv(
+        "SNIPER_MODEL_PATH",
+        os.path.join("artifacts", "models", "trading_model_sniper_v5.pkl"),
+    )
+    CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "*")
+    API_RATE_LIMIT_PER_MINUTE: int = int(os.getenv("API_RATE_LIMIT_PER_MINUTE", "60"))
 
 
 settings = Settings()

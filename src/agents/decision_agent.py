@@ -1,122 +1,120 @@
 """
-Multi-horizon decision agent.
+Multi-horizon decision agent with honest product messaging.
 
-Investment horizons supported:
-  Short-term  (5 trading days  ~ 1 week)   : ML model primary signal
-  Medium-term (21 trading days ~ 1 month)  : ML + trend composite
-  Long-term   (63 trading days ~ 3 months) : ML + trend + momentum composite
-  Very long   (126 days ~ 6 months)        : Trend + momentum dominant
-  Annual      (252 days ~ 1 year)          : Trend regime + fundamental proxy
-
-For horizons beyond 5 days the ML model (trained on 5-day labels) still
-provides the short-term directional impulse, but its weight is reduced and
-the trend-analysis score (from TrendAgent) takes increasing weight.
-
-This approach requires NO retraining — it combines the existing signal
-with technical analysis in a disciplined, weight-adjusted framework.
+Interview talking point: we do NOT claim the ML model predicts 1-year prices.
+It is trained on ~20-day direction; longer horizons blend trend analysis with
+explicitly documented weights (see src/config/horizons.py).
 """
 
 from __future__ import annotations
 
-HORIZONS = {
-    "5d":   {"label": "1 Week  (5 trading days)",    "days": 5,   "ml_weight": 0.80, "trend_weight": 0.20},
-    "21d":  {"label": "1 Month (21 trading days)",   "days": 21,  "ml_weight": 0.50, "trend_weight": 0.50},
-    "63d":  {"label": "3 Months (63 trading days)",  "days": 63,  "ml_weight": 0.30, "trend_weight": 0.70},
-    "126d": {"label": "6 Months (126 trading days)", "days": 126, "ml_weight": 0.15, "trend_weight": 0.85},
-    "252d": {"label": "1 Year  (252 trading days)",  "days": 252, "ml_weight": 0.10, "trend_weight": 0.90},
-}
+from src.config.horizons import (
+    BUY_THRESHOLD,
+    DEFAULT_HORIZON,
+    HORIZONS,
+    SELL_THRESHOLD,
+)
 
-DEFAULT_HORIZON = "5d"
-
-BUY_THRESHOLD  = 0.58
-SELL_THRESHOLD = 0.42
+# Re-export for backward compatibility
+__all__ = ["HORIZONS", "DEFAULT_HORIZON", "MLDecisionAgent", "BUY_THRESHOLD", "SELL_THRESHOLD"]
 
 
 class MLDecisionAgent:
-    """
-    Maps ML probability + trend score into a BUY / SELL / HOLD decision
-    for any investment horizon, with plain-English reasoning for laymen.
-
-    Horizon weighting logic:
-      - Short-term:   ML model dominates (80%) — trained for this exact task
-      - Medium-term:  Equal weight (50/50)
-      - Long-term:    Trend dominates (70-90%) — ML signal too short for these horizons
-    """
+    """Maps ML probability + trend score → BUY / SELL / HOLD with plain-English copy."""
 
     def decide(
         self,
         ml_result: dict,
         trend_result: dict | None = None,
         horizon_key: str = DEFAULT_HORIZON,
+        risk_overlay: dict | None = None,
     ) -> dict:
-        horizon_cfg  = HORIZONS.get(horizon_key, HORIZONS[DEFAULT_HORIZON])
+        horizon_cfg = HORIZONS.get(horizon_key, HORIZONS[DEFAULT_HORIZON])
         horizon_days = horizon_cfg["days"]
-        horizon_lbl  = horizon_cfg["label"]
-        ml_w         = horizon_cfg["ml_weight"]
-        trend_w      = horizon_cfg["trend_weight"]
+        horizon_lbl = horizon_cfg["label"]
+        ml_w = horizon_cfg["ml_weight"]
+        trend_w = horizon_cfg["trend_weight"]
 
-        # ── ML signal ─────────────────────────────────────────────────────────
         if not ml_result.get("available", False):
-            ml_score   = 0.5           # neutral fallback
+            ml_score = 0.5
             model_name = "unavailable"
-            ml_note    = "ML model not ready — train first with `python train.py`."
+            ml_note = "ML model not ready — run `python train.py` or place Sniper v5 model in artifacts/models/."
         else:
-            ml_score   = ml_result["probability_up"]   # 0-1, >0.5 = bullish
+            ml_score = ml_result["probability_up"]
             model_name = ml_result.get("model_name", "unknown")
-            ml_note    = None
+            ml_note = None
 
-        # ── Trend score  (TrendAgent returns score in [-1, 1]) ─────────────────
-        trend_score    = 0.0
-        trend_label    = "Unknown"
-        trend_summary  = ""
+        trend_score = 0.0
+        trend_label = "Unknown"
+        trend_summary = ""
         if trend_result:
-            trend_score   = float(trend_result.get("trend_score", 0.0))
-            trend_label   = trend_result.get("trend_label", "Unknown")
+            trend_score = float(trend_result.get("trend_score", 0.0))
+            trend_label = trend_result.get("trend_label", "Unknown")
             trend_summary = trend_result.get("summary", "")
 
-        # Normalise trend_score from [-1,1] to [0,1] for blending
         trend_prob = (trend_score + 1.0) / 2.0
-
-        # ── Composite score ────────────────────────────────────────────────────
         composite = ml_w * ml_score + trend_w * trend_prob
 
-        # ── Decision ───────────────────────────────────────────────────────────
         if composite >= BUY_THRESHOLD:
-            decision   = "BUY"
+            decision = "BUY"
             confidence = composite
         elif composite <= SELL_THRESHOLD:
-            decision   = "SELL"
+            decision = "SELL"
             confidence = 1.0 - composite
         else:
-            decision   = "HOLD"
+            decision = "HOLD"
             confidence = max(composite, 1.0 - composite)
 
-        # ── Reasoning ─────────────────────────────────────────────────────────
+        # Risk overlay: downgrade BUY in extreme volatility
+        risk_adjusted = decision
+        risk_note = ""
+        if risk_overlay and decision == "BUY":
+            if risk_overlay.get("risk_level") == "HIGH":
+                risk_adjusted = "HOLD"
+                risk_note = (
+                    " BUY downgraded to HOLD due to elevated volatility "
+                    f"(risk score {risk_overlay.get('risk_score', 'N/A')})."
+                )
+
+        ml_horizon = ml_result.get("forecast_horizon_days", horizon_cfg["ml_training_horizon_days"])
+
         if ml_note:
             technical_reason = ml_note
         else:
             technical_reason = (
-                f"ML model ({model_name}): {ml_score:.1%} probability of price rising in 5 days. "
-                f"Trend analysis: {trend_label} (score {trend_score:+.2f}). "
-                f"Composite signal for {horizon_lbl}: {composite:.1%} "
-                f"(ML weight {ml_w:.0%}, Trend weight {trend_w:.0%})."
+                f"ML ({model_name}): {ml_score:.1%} P(up) over ~{ml_horizon} trading days. "
+                f"Trend: {trend_label} (score {trend_score:+.2f}). "
+                f"Composite for {horizon_lbl}: {composite:.1%} "
+                f"(ML {ml_w:.0%} + Trend {trend_w:.0%})."
+                f"{risk_note}"
             )
 
-        plain_english = _plain_english(decision, confidence, horizon_days, horizon_lbl, trend_label, ml_w)
+        plain_english = _plain_english(
+            risk_adjusted, confidence, horizon_days, horizon_lbl,
+            trend_label, ml_w, horizon_cfg,
+        )
 
         return {
-            "final_decision":   decision,
-            "confidence":       round(confidence, 4),
-            "horizon":          horizon_lbl,
-            "horizon_days":     horizon_days,
-            "composite_score":  round(composite, 4),
-            "ml_probability":   round(ml_score, 4),
-            "trend_score":      round(trend_score, 4),
-            "ml_weight":        ml_w,
-            "trend_weight":     trend_w,
-            "reasoning":        technical_reason,
-            "plain_english":    plain_english,
-            "agent_summary":    {"ml": ml_result},
+            "final_decision": risk_adjusted,
+            "raw_decision": decision,
+            "confidence": round(confidence, 4),
+            "horizon": horizon_lbl,
+            "horizon_key": horizon_key,
+            "horizon_days": horizon_days,
+            "composite_score": round(composite, 4),
+            "ml_probability": round(ml_score, 4),
+            "trend_score": round(trend_score, 4),
+            "ml_weight": ml_w,
+            "trend_weight": trend_w,
+            "ml_training_horizon_days": horizon_cfg["ml_training_horizon_days"],
+            "primary_signal": horizon_cfg["primary_signal"],
+            "user_expectation": horizon_cfg["user_expectation"],
+            "honest_disclaimer": horizon_cfg["honest_disclaimer"],
+            "reasoning": technical_reason,
+            "plain_english": plain_english,
+            "trend_summary": trend_summary,
+            "risk_overlay": risk_overlay or {},
+            "agent_summary": {"ml": ml_result, "trend": trend_result or {}},
         }
 
 
@@ -127,47 +125,46 @@ def _plain_english(
     horizon_lbl: str,
     trend_label: str,
     ml_weight: float,
+    horizon_cfg: dict,
 ) -> str:
     pct = f"{confidence:.0%}"
     horizon_plain = {
-        5:   "about 1 week",
-        21:  "about 1 month",
-        63:  "about 3 months",
+        5: "about 1 week",
+        21: "about 1 month",
+        63: "about 3 months",
         126: "about 6 months",
         252: "about 1 year",
     }.get(horizon_days, f"{horizon_days} trading days")
 
     method_note = (
-        "based mainly on the ML model's short-term signal"
+        "based mainly on our ML model (trained for ~20-day price direction)"
         if ml_weight >= 0.6 else
-        "based on a combination of ML signal and market trend analysis"
+        "based on a blend of ML and trend analysis"
         if ml_weight >= 0.3 else
-        "based mainly on the long-term market trend analysis"
+        "based mainly on long-term trend analysis (ML plays a small supporting role)"
     )
 
+    disclaimer = horizon_cfg["honest_disclaimer"]
+
     if decision == "BUY":
-        return (
-            f"Our analysis ({method_note}) suggests there is a good chance "
-            f"this stock's price will be higher {horizon_plain} from now. "
-            f"The market trend is currently showing a {trend_label.lower()}. "
-            f"AI confidence: {pct}. "
-            f"This could be a good time to consider buying — "
-            f"but always do your own research and only invest what you can afford to lose."
+        action = (
+            f"Our analysis ({method_note}) suggests a bullish bias over {horizon_plain}. "
+            f"Trend: {trend_label.lower()}. Confidence: {pct}. "
         )
     elif decision == "SELL":
-        return (
-            f"Our analysis ({method_note}) suggests there is a reasonable chance "
-            f"this stock's price may be lower {horizon_plain} from now. "
-            f"The market trend is currently showing a {trend_label.lower()}. "
-            f"AI confidence: {pct}. "
-            f"If you own this stock, you may want to consider reducing your position. "
-            f"Remember: no prediction is guaranteed — always consult a financial advisor."
+        action = (
+            f"Our analysis ({method_note}) suggests a bearish bias over {horizon_plain}. "
+            f"Trend: {trend_label.lower()}. Confidence: {pct}. "
         )
     else:
-        return (
-            f"Our analysis ({method_note}) does not see a strong directional signal "
-            f"for this stock over the next {horizon_plain}. "
-            f"The market trend is showing a {trend_label.lower()}. "
-            f"The safest approach right now is to hold and wait for a clearer signal. "
-            f"Patience is often the best strategy in uncertain markets."
+        action = (
+            f"No strong directional signal for {horizon_plain}. "
+            f"Trend: {trend_label.lower()}. "
+            f"Waiting for clearer confirmation is reasonable. "
         )
+
+    return (
+        f"{action}"
+        f"Note: {disclaimer} "
+        f"This is educational analysis, not financial advice."
+    )

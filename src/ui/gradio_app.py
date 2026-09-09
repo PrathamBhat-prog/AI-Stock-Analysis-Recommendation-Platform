@@ -18,7 +18,7 @@ import pandas as pd
 import gradio as gr
 
 from src.pipelines.inference_pipeline import StockAnalysisPipeline
-from src.agents.decision_agent import HORIZONS, DEFAULT_HORIZON
+from src.config.horizons import HORIZONS, DEFAULT_HORIZON
 from src.data.fetch_data import fetch_stock_data
 from src.data.validate_data import validate_stock_data
 from src.data.features import add_time_series_features
@@ -302,6 +302,10 @@ def _card(result, ticker):
     ml_w      = int(result.get("ml_weight", 0.8) * 100)
     tr_w      = int(result.get("trend_weight", 0.2) * 100)
     plain     = result.get("plain_english", "")
+    disclaimer = result.get("honest_disclaimer", "")
+    pos       = result.get("position_sizing", {})
+    pos_pct   = pos.get("suggested_portfolio_pct", 0)
+    risk      = result.get("risk", {})
     t_sum     = tr.get("summary", "")
     co_name   = co.get("company_name", ticker.upper())
 
@@ -386,7 +390,13 @@ def _card(result, ticker):
   <div style="background:{PANEL};border-radius:10px;padding:9px 13px;
               font-size:0.75rem;color:#64748B;margin-bottom:8px;">
     Score: ML {ml_prob:.1%} (wt {ml_w}%) + Trend {(t_score+1)/2:.1%} (wt {tr_w}%)
-    = Composite {comp:.1%}
+    = Composite {comp:.1%}<br/>
+    Risk: {risk.get('risk_level','N/A')} | Suggested size: {pos_pct:.1f}% of portfolio
+  </div>
+
+  <div style="background:{PANEL};border-radius:10px;padding:9px 13px;
+              font-size:0.78rem;color:#94A3B8;margin-bottom:8px;border:1px solid {BORDER};">
+    <strong style="color:#CBD5E1;">What this horizon means:</strong> {disclaimer}
   </div>
 
   <div style="padding:9px 13px;background:{PANEL};border-radius:10px;
@@ -585,6 +595,19 @@ OR pick from the popular stocks dropdown.
         # ---- Tab 4: Glossary -------------------------------------------
         with gr.Tab("Glossary"):
             gr.Markdown(GLOSSARY)
+
+        with gr.Tab("Horizon Guide"):
+            gr.Markdown(
+                "## Which horizon should I pick?\n\n"
+                + "\n\n".join(
+                    f"### {cfg['label']}\n"
+                    f"**Best for:** {cfg['user_expectation']}\n\n"
+                    f"**How it works:** {cfg['primary_signal']} "
+                    f"(ML weight {cfg['ml_weight']:.0%}, Trend {cfg['trend_weight']:.0%})\n\n"
+                    f"**Important:** {cfg['honest_disclaimer']}"
+                    for cfg in HORIZONS.values()
+                )
+            )
 
 
 if __name__ == "__main__":

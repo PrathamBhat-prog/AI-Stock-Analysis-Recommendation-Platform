@@ -1,16 +1,16 @@
 """
-Train and compare ML models for stock direction prediction.
+Train ML models for stock direction prediction.
 
 Usage:
-    python train.py
-    python train.py --tickers AAPL MSFT GOOGL --period 5y
+    python train.py                              # sklearn/LSTM comparison (5d horizon)
+    python train.py --strategy sniper            # Sniper v5 CatBoost (20d horizon)
+    python train.py --strategy backtest          # walk-forward backtest only
+    python train.py --tickers AAPL MSFT --period 5y
 """
 import argparse
 import json
 import logging
 import sys
-
-from src.pipelines.training_pipeline import TrainingPipeline
 
 logging.basicConfig(
     level=logging.INFO,
@@ -19,72 +19,59 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _train_sklearn(args) -> int:
+    from src.pipelines.training_pipeline import TrainingPipeline
+
+    pipeline = TrainingPipeline()
+    result = pipeline.run(
+        tickers=args.tickers,
+        period=args.period,
+        model_names=args.models,
+    )
+    meta = result["metadata"]
+    ds = meta["dataset_size"]
+    print("\n=== Training Complete (sklearn/LSTM) ===")
+    print(f"Dataset: {ds['total_rows']} rows from {ds['tickers']} tickers")
+    print(f"Best model: {result['best_model']}")
+    pm = result["primary_metric"]
+    print(f"Test {pm}: {result['best_test_metrics'][pm]:.4f}")
+    return 0
+
+
+def _train_sniper(args) -> int:
+    from src.models.sniper_trainer import train_sniper
+
+    meta = train_sniper(tickers=args.tickers, period=args.period)
+    print("\n=== Sniper v5 Training Complete ===")
+    print(json.dumps(meta, indent=2))
+    return 0
+
+
+def _run_backtest(args) -> int:
+    from src.backtest.walk_forward import run_walk_forward_backtest
+
+    result = run_walk_forward_backtest(tickers=args.tickers, period=args.period)
+    print("\n=== Walk-Forward Backtest ===")
+    print(json.dumps(result, indent=2))
+    return 0
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Train stock direction ML models")
-    parser.add_argument(
-        "--tickers",
-        nargs="+",
-        default=None,
-        help="Ticker symbols for training (default: config list)",
-    )
-    parser.add_argument(
-        "--period",
-        default="5y",
-        help="yfinance history period (default: 5y)",
-    )
-    parser.add_argument(
-        "--models",
-        nargs="+",
-        default=None,
-        help="Model names to compare (default: all candidates)",
-    )
+    parser = argparse.ArgumentParser(description="Train stock ML models")
+    parser.add_argument("--strategy", choices=["sklearn", "sniper", "backtest"], default="sklearn")
+    parser.add_argument("--tickers", nargs="+", default=None)
+    parser.add_argument("--period", default="5y")
+    parser.add_argument("--models", nargs="+", default=None)
     args = parser.parse_args()
 
     try:
-        pipeline = TrainingPipeline()
-        result = pipeline.run(
-            tickers=args.tickers,
-            period=args.period,
-            model_names=args.models,
-        )
-
-        meta = result["metadata"]
-        ds = meta["dataset_size"]
-
-        print("\n=== Training Complete ===")
-        print(f"Dataset: {ds['total_rows']} rows from {ds['tickers']} tickers")
-        print(f"  train={ds['train_rows']}  val={ds['val_rows']}  test={ds['test_rows']}")
-        print(f"Features: {meta['feature_count']} time-series features")
-        print(f"Best model: {result['best_model']}")
-        pm = result["primary_metric"]
-        print(f"Validation {pm}: {result['best_val_metrics'][pm]:.4f}")
-        print(f"Test {pm}: {result['best_test_metrics'][pm]:.4f}")
-        print(f"Test accuracy: {result['best_test_metrics']['accuracy']:.4f}")
-
-        print("\nModel comparison (test set):")
-        for name, metrics in result["model_comparison"].items():
-            test = metrics["test"]
-            print(
-                f"  {name:25s}  acc={test['accuracy']:.4f}  "
-                f"f1={test['f1']:.4f}  auc={test['roc_auc']:.4f}"
-            )
-
-        print("\nBenchmark vs market references (test ROC-AUC):")
-        for bench_name, comp in meta["benchmark_comparison"]["market_benchmarks"].items():
-            delta = comp["delta"]["roc_auc"]
-            sign = "+" if delta >= 0 else ""
-            print(
-                f"  vs {bench_name:30s}  ours={comp['our_model']['roc_auc']:.4f}  "
-                f"baseline={comp['baseline']['roc_auc']:.4f}  ({sign}{delta:.4f})"
-            )
-
-        print("\nArtifacts saved to artifacts/models/")
-        print("View MLflow UI: mlflow ui --backend-store-uri mlruns")
-
-        return 0
-
+        if args.strategy == "sniper":
+            return _train_sniper(args)
+        if args.strategy == "backtest":
+            return _run_backtest(args)
+        return _train_sklearn(args)
     except Exception as exc:
-        logger.exception("Training failed: %s", exc)
+        logger.exception("Failed: %s", exc)
         return 1
 
 

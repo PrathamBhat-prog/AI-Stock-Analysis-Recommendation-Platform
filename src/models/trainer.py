@@ -27,6 +27,7 @@ import lightgbm as lgb
 import mlflow
 import pandas as pd
 import xgboost as xgb
+from catboost import CatBoostClassifier
 from sklearn.ensemble import (
     GradientBoostingClassifier,
     HistGradientBoostingClassifier,
@@ -139,6 +140,16 @@ def _build_sklearn_pipelines() -> dict[str, Pipeline]:
                 random_state=42,
                 n_jobs=-1,
                 verbose=-1,
+            )),
+        ]),
+        "catboost": Pipeline([
+            ("model", CatBoostClassifier(
+                iterations=500,
+                learning_rate=0.05,
+                depth=6,
+                verbose=0,
+                random_seed=42,
+                auto_class_weights="Balanced",
             )),
         ]),
     }
