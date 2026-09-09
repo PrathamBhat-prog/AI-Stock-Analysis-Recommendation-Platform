@@ -49,16 +49,18 @@ def _fetch_vix() -> tuple[float, float]:
         return 20.0, 0.0
 
 
+def _safe_float(val: float, default: float = 0.0) -> float:
+    return default if val != val else float(val)  # NaN check
+
+
 def _build_ohlcv_features(df: pd.DataFrame) -> dict:
     close = df["Close"]
     vol = df["Volume"]
-    momentum_20d = float(close.pct_change(20).iloc[-1])
+    momentum_20d = _safe_float(close.pct_change(20).iloc[-1])
     high_52w = float(close.rolling(252, min_periods=1).max().iloc[-1])
-    dist_52w_high = float((close.iloc[-1] - high_52w) / high_52w) if high_52w else 0.0
-    vol_ratio_5d = float(
-        (vol.iloc[-1] / vol.rolling(5).mean().iloc[-1])
-        if vol.rolling(5).mean().iloc[-1] > 0 else 1.0
-    )
+    dist_52w_high = _safe_float((close.iloc[-1] - high_52w) / high_52w) if high_52w else 0.0
+    vol_ma5 = vol.rolling(5).mean().iloc[-1]
+    vol_ratio_5d = _safe_float(vol.iloc[-1] / vol_ma5, default=1.0) if vol_ma5 > 0 else 1.0
     return {
         "momentum_20d": momentum_20d,
         "dist_52w_high": dist_52w_high,
@@ -87,6 +89,10 @@ class SniperPredictor:
             logger.info("Sniper v5 loaded from %s", self._model_path)
 
     def predict(self, ticker: str, df: pd.DataFrame, company_name: str = "") -> dict:
+        if df is None or len(df) < 30:
+            raise ValueError(
+                f"Need at least 30 days of price history for {ticker}; got {len(df) if df is not None else 0}."
+            )
         self._load()
         vix, vix_vel = _fetch_vix()
         headlines = fetch_headlines(ticker, company_name)

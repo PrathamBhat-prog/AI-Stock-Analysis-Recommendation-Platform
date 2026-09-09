@@ -126,10 +126,8 @@ class StockAnalysisPipeline:
                 "explainability": explainability,
             }
 
-            artifact_path = os.path.join(
-                os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")),
-                "decision.json",
-            )
+            artifact_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+            artifact_path = os.path.join(artifact_dir, f"decision_{ticker}.json")
             with open(artifact_path, "w", encoding="utf-8") as f:
                 json.dump(full_result, f, indent=2, default=str)
             mlflow.log_artifact(artifact_path)

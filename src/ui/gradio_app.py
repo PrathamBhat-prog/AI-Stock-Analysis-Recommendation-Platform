@@ -27,6 +27,7 @@ pipeline = StockAnalysisPipeline()
 
 PERIODS = ["1mo", "3mo", "6mo", "1y", "2y", "5y", "10y"]
 HORIZON_CHOICES = {v["label"]: k for k, v in HORIZONS.items()}
+DEFAULT_HORIZON_LABEL = HORIZONS[DEFAULT_HORIZON]["label"]
 
 POPULAR = {
     "Apple (AAPL)":           "AAPL",
@@ -544,7 +545,7 @@ OR pick from the popular stocks dropdown.
                 horizon_in = gr.Dropdown(
                     label="Investment Horizon",
                     choices=list(HORIZON_CHOICES.keys()),
-                    value=list(HORIZON_CHOICES.keys())[0], scale=2,
+                    value=DEFAULT_HORIZON_LABEL, scale=2,
                 )
 
             analyse_btn  = gr.Button("Analyse Stock", variant="primary", size="lg")
@@ -580,7 +581,7 @@ OR pick from the popular stocks dropdown.
                 wl_hor = gr.Dropdown(
                     label="Horizon",
                     choices=list(HORIZON_CHOICES.keys()),
-                    value=list(HORIZON_CHOICES.keys())[0], scale=2,
+                    value=DEFAULT_HORIZON_LABEL, scale=2,
                 )
             compare_btn = gr.Button("Compare Stocks", variant="primary")
             wl_out      = gr.Dataframe(label="Ranked Results", wrap=True)

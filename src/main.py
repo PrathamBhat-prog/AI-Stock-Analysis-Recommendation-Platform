@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -53,7 +52,7 @@ async def rate_limit_middleware(request: Request, call_next):
 
 
 class AnalyseRequest(BaseModel):
-    ticker: str = Field(..., min_length=1, max_length=20)
+    ticker: str = Field(..., min_length=1, max_length=24, pattern=r"^[A-Za-z0-9.\-^=]+$")
     period: str = "2y"
     horizon_key: str = DEFAULT_HORIZON
 

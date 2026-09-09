@@ -58,9 +58,13 @@ def compute_position_sizing(
     else:
         suggested = 0.0
 
-    suggested = float(np.clip(suggested, MIN_WEIGHT if decision == "BUY" else 0.0, MAX_WEIGHT))
     if decision != "BUY":
         suggested = 0.0
+    else:
+        suggested = float(np.clip(suggested, 0.0, MAX_WEIGHT))
+        # Only suggest a position if conviction clears a minimum bar
+        if suggested < MIN_WEIGHT:
+            suggested = 0.0
 
     vol_label = (
         "High" if realized_vol > 0.025 else

@@ -42,3 +42,18 @@ python train.py --strategy sniper --period 5y    # production model
 python train.py --strategy sklearn --period 5y   # research comparison
 python train.py --strategy backtest --period 5y  # walk-forward with costs
 ```
+
+## Audit notes (code review)
+
+| Item | Status |
+|------|--------|
+| Unified `features.py` for train + inference + trend | Done |
+| Horizon honesty in API/UI | Done |
+| Risk + position sizing wired | Done |
+| In-repo Sniper training | Done |
+| Walk-forward backtest (non-overlapping trades) | Done |
+| CI + pytest | Done |
+| Gradio default horizon = 1 month (`21d`) | Done |
+| Historical GDELT backfill for training | Future work |
+| FinBERT sentiment upgrade | Future work |
+| Per-ticker chronological splits | Future work |

@@ -80,11 +80,11 @@ def run_walk_forward_backtest(
         probas = model.predict_proba(x_test)[:, 1]
         preds = probas >= threshold
 
-        # Strategy: long when BUY signal, flat otherwise
+        # Non-overlapping trades: one position at a time, hold for full horizon
         close = test_df["Close"].values
-        forward_ret = np.zeros(len(test_df))
         horizon = 20
-        for i in range(len(test_df) - horizon):
+        i = 0
+        while i < len(test_df) - horizon:
             if preds[i]:
                 ret = (close[i + horizon] - close[i]) / close[i]
                 ret -= 2 * transaction_cost  # round-trip
@@ -92,6 +92,9 @@ def run_walk_forward_backtest(
                 trades += 1
                 if ret > 0:
                     wins += 1
+                i += horizon  # skip overlapping positions
+            else:
+                i += 1
 
     if not all_returns:
         return {"error": "Insufficient data for walk-forward backtest", "n_trades": 0}

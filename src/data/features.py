@@ -83,7 +83,7 @@ def add_time_series_features(
 
     sign = np.sign(close.diff()).fillna(0)
     obv = (sign * vol).cumsum()
-    df["OBV_ROC_10"] = obv.pct_change(10)
+    df["OBV_ROC_10"] = obv.pct_change(10).replace([np.inf, -np.inf], np.nan)
 
     ma20 = close.rolling(20).mean()
     std20 = close.rolling(20).std().replace(0, np.nan)
