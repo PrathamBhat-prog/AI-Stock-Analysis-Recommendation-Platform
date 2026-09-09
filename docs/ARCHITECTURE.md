@@ -49,7 +49,7 @@ python train.py --strategy backtest --period 5y
 python scripts/backfill_sentiment.py AAPL --period 5y
 ```
 
-## Why these choices (interview)
+## Design rationale
 
 - **CatBoost over XGBoost/LightGBM for Sniper:** robust defaults, strong tabular performance.
 - **VADER default / FinBERT optional:** free, reproducible; FinBERT when `transformers` installed.

@@ -9,7 +9,7 @@ class RiskAnalysisAgent:
     """
     Evaluates short-term risk from realized volatility.
 
-    Interview: we use vol instead of a black-box 'risk score' because it is
+    We use vol instead of a black-box 'risk score' because it is
     interpretable, cheap to compute, and directly ties to position sizing.
     """
 

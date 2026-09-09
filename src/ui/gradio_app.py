@@ -513,7 +513,7 @@ with gr.Blocks(title="Stock Market AI Analyser", css=CSS, theme=gr.themes.Base()
         <strong style="color:#EF4444;">SELL</strong> /
         <strong style="color:#F59E0B;">HOLD</strong>
         signals for any stock in the world.
-        Choose your investment horizon from 1 week to 1 year.
+        Choose your investment horizon (trading days — e.g. 252 sessions ≈ 1 year of market activity).
       </div>
     </div>
     """)

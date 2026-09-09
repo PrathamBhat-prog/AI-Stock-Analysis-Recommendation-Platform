@@ -23,6 +23,7 @@ AWSCLIV2.msi
 
 # Cache
 .cache/
+catboost_info/
 
 # Training proof artifacts
 docs/training_results/*.png

@@ -1,7 +1,7 @@
 """
 Unified feature engineering for training, inference, trend analysis, and charts.
 
-Design choice (interview): one module, explicit column tiers
+Design choice: one module, explicit column tiers
   - ML_CORE: 12 stationary features for sklearn/LSTM training
   - CHART/TREND: extra columns for UI charts and TrendAgent (no leakage into Sniper v5)
   - Sniper v5 uses separate live features in sniper_predictor.py (sentiment + VIX)

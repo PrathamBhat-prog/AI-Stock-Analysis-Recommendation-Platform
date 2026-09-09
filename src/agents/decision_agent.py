@@ -1,7 +1,7 @@
 """
 Multi-horizon decision agent with honest product messaging.
 
-Interview talking point: we do NOT claim the ML model predicts 1-year prices.
+We do NOT claim the ML model predicts 1-year prices.
 It is trained on ~20-day direction; longer horizons blend trend analysis with
 explicitly documented weights (see src/config/horizons.py).
 """
@@ -128,13 +128,16 @@ def _plain_english(
     horizon_cfg: dict,
 ) -> str:
     pct = f"{confidence:.0%}"
+    calendar_approx = horizon_cfg.get("calendar_approx", "")
     horizon_plain = {
-        5: "about 1 week",
-        21: "about 1 month",
-        63: "about 3 months",
-        126: "about 6 months",
-        252: "about 1 year",
+        5: "about 1 week of trading (5 sessions)",
+        21: "about 1 month of trading (21 sessions)",
+        63: "about 3 months of trading (63 sessions)",
+        126: "about 6 months of market sessions (126 trading days, not calendar days)",
+        252: "about 1 year of market sessions (252 trading days, not calendar days)",
     }.get(horizon_days, f"{horizon_days} trading days")
+    if calendar_approx and horizon_days in (126, 252):
+        horizon_plain = f"{horizon_plain} — {calendar_approx}"
 
     method_note = (
         "based mainly on our ML model (trained for ~20-day price direction)"

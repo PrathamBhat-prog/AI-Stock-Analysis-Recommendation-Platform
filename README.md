@@ -27,13 +27,19 @@ Production-style stock analyser: **CatBoost Sniper v5** + **GDELT sentiment** + 
 
 ## What can this actually predict?
 
-| Horizon | ML weight | Trend weight | Honest answer |
-|---------|-----------|--------------|---------------|
-| 1 week (`5d`) | 80% | 20% | Short-term directional bias |
-| 1 month (`21d`) | 50% | 50% | **Default** — closest to ML training |
-| 3 months (`63d`) | 30% | 70% | Trend regime |
-| 6 months (`126d`) | 15% | 85% | Trend extrapolation |
-| 1 year (`252d`) | 10% | 90% | **Trend direction — not an annual forecast** |
+Horizon keys are **trading days** (market sessions), not calendar days.  
+126 trading days ≈ 6 months of market activity (~180 calendar days).  
+252 trading days ≈ 1 year of market activity (~365 calendar days).
+
+| Horizon key | Trading days | ~Calendar equivalent | ML weight | Trend weight | Honest answer |
+|-------------|--------------|----------------------|-----------|--------------|---------------|
+| `5d` | 5 | ~1 week | 80% | 20% | Short-term directional bias |
+| `21d` | 21 | ~1 month | 50% | 50% | **Default** — closest to ML training (20 trading days) |
+| `63d` | 63 | ~3 months | 30% | 70% | Trend regime |
+| `126d` | 126 | ~6 months | 15% | 85% | Trend extrapolation (not 126 calendar days) |
+| `252d` | 252 | ~1 year | 10% | 90% | **Trend direction — not an annual price forecast** |
+
+The CatBoost model is trained on **20 trading-day** forward returns.
 
 ---
 
@@ -146,7 +152,6 @@ scripts/
 tests/
 docs/
   ARCHITECTURE.md
-  INTERVIEW_GUIDE.md
 ```
 
 ---
@@ -180,7 +185,6 @@ docs/
 ## Docs
 
 - [Architecture](docs/ARCHITECTURE.md)
-- [Interview guide](docs/INTERVIEW_GUIDE.md)
 
 ## Author
 

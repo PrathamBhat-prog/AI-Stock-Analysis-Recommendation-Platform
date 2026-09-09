@@ -1,7 +1,7 @@
 """
 Walk-forward backtest with transaction costs (free, no external services).
 
-Interview: random train/test split leaks future info in time series; walk-forward
+Random train/test split leaks future info in time series; walk-forward
 re-trains on past windows and tests on the next segment — industry standard.
 """
 

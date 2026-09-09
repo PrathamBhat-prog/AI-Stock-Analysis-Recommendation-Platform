@@ -5,7 +5,13 @@ from src.agents.decision_agent import MLDecisionAgent
 def test_one_year_horizon_is_trend_dominant():
     cfg = HORIZONS["252d"]
     assert cfg["trend_weight"] >= 0.85
-    assert "not" in cfg["honest_disclaimer"].lower() or "trend" in cfg["honest_disclaimer"].lower()
+    assert "trading" in cfg["label"].lower() or "252" in cfg["honest_disclaimer"]
+
+
+def test_126d_is_not_126_calendar_days():
+    cfg = HORIZONS["126d"]
+    assert cfg["trading_days"] == 126
+    assert "180" in cfg["calendar_approx"]
 
 
 def test_decision_includes_disclaimer():
@@ -22,4 +28,4 @@ def test_decision_includes_disclaimer():
 def test_horizon_api_payload():
     api = horizon_for_api()
     assert DEFAULT_HORIZON in api
-    assert "user_expectation" in api[DEFAULT_HORIZON]
+    assert "calendar_approx" in api[DEFAULT_HORIZON]
