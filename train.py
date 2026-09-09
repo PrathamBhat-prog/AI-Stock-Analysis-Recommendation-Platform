@@ -46,8 +46,7 @@ def _train_sniper(args) -> int:
     meta = train_sniper(
         tickers=args.tickers,
         period=args.period,
-        backfill_sentiment=mode != "inference_only",
-        sentiment_mode="full" if mode == "full" else mode,
+        sentiment_mode=mode,
     )
     print("\n=== Sniper v5 Training Complete ===")
     print(json.dumps(meta, indent=2))
@@ -80,9 +79,9 @@ def main() -> int:
     )
     parser.add_argument(
         "--sentiment-mode",
-        choices=["inference_only", "lite", "full"],
-        default="lite",
-        help="lite=recommended (~1-2h); inference_only=fast; full=overnight",
+        choices=["proxy", "inference_only", "lite", "full"],
+        default="proxy",
+        help="proxy=default (no GDELT 429); lite/full deprecated",
     )
     args = parser.parse_args()
 

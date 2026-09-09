@@ -1,7 +1,10 @@
 """
 Build training dataset for Sniper v5 CatBoost (free data sources only).
 
-Sources: yfinance (OHLCV + VIX), GDELT historical sentiment (cached, sampled).
+Sentiment architecture (no GDELT 429 during training):
+  proxy (default) — price/volume proxy + 1 yfinance news call per ticker
+  inference_only — neutral zeros (fast baseline)
+  gdelt_lite / gdelt_full — deprecated; hits GDELT rate limits
 """
 
 from __future__ import annotations
@@ -23,6 +26,7 @@ from src.config.ml_config import (
 )
 from src.data.fetch_data import fetch_stock_data
 from src.data.sentiment_backfill import attach_sentiment_features
+from src.data.sentiment_proxy import attach_proxy_sentiment
 from src.data.validate_data import validate_stock_data
 
 logger = logging.getLogger(__name__)
@@ -32,6 +36,9 @@ SNIPER_FEATURE_COLS = [
     "vol_ratio_5d", "VIX", "sent_lag_1", "sent_lag_3",
     "sent_lag_5", "sent_vix_interaction", "vix_velocity",
 ]
+
+# Default training path — no GDELT historical API
+DEFAULT_SENTIMENT_MODE = "proxy"
 
 
 def _fetch_vix_history(period: str = TRAIN_PERIOD) -> pd.DataFrame:
@@ -43,12 +50,47 @@ def _fetch_vix_history(period: str = TRAIN_PERIOD) -> pd.DataFrame:
     return vix[["Date", "VIX", "vix_velocity"]]
 
 
+def _attach_sentiment(
+    df: pd.DataFrame,
+    ticker: str,
+    sentiment_mode: str,
+) -> pd.DataFrame:
+    if sentiment_mode == "proxy":
+        return attach_proxy_sentiment(df, ticker)
+
+    if sentiment_mode in ("inference_only", "none"):
+        df = df.copy()
+        for col in ("rolling_sentiment_20d", "sent_lag_1", "sent_lag_3", "sent_lag_5"):
+            df[col] = 0.0
+        df["sent_vix_interaction"] = 0.0
+        return df
+
+    if sentiment_mode in ("lite", "gdelt_lite"):
+        logger.warning(
+            "%s: gdelt lite mode hits API rate limits — consider --sentiment-mode proxy",
+            ticker,
+        )
+        lite_kw = {
+            "stride": SENTIMENT_LITE_STRIDE,
+            "max_samples": SENTIMENT_LITE_MAX_SAMPLES,
+            "recent_years": SENTIMENT_LITE_RECENT_YEARS,
+        }
+        return attach_sentiment_features(df, ticker=ticker, backfill=True, **lite_kw)
+
+    if sentiment_mode in ("full", "gdelt_full"):
+        logger.warning("%s: full GDELT backfill is deprecated (429 rate limits)", ticker)
+        return attach_sentiment_features(
+            df, ticker=ticker, backfill=True, stride=SENTIMENT_BACKFILL_STRIDE,
+        )
+
+    return attach_proxy_sentiment(df, ticker)
+
+
 def _engineer_ticker_features(
     df: pd.DataFrame,
     vix_df: pd.DataFrame,
     ticker: str,
-    backfill_sentiment: bool = True,
-    sentiment_mode: str = "inference_only",
+    sentiment_mode: str = DEFAULT_SENTIMENT_MODE,
 ) -> pd.DataFrame:
     df = df.copy()
     df["Date"] = pd.to_datetime(df["Date"], utc=True).dt.tz_localize(None)
@@ -64,19 +106,7 @@ def _engineer_ticker_features(
     df["VIX"] = df["VIX"].ffill().fillna(20.0)
     df["vix_velocity"] = df["vix_velocity"].fillna(0.0)
 
-    bf = backfill_sentiment and sentiment_mode != "inference_only"
-    lite_kw = {}
-    if sentiment_mode == "lite":
-        lite_kw = {
-            "stride": SENTIMENT_LITE_STRIDE,
-            "max_samples": SENTIMENT_LITE_MAX_SAMPLES,
-            "recent_years": SENTIMENT_LITE_RECENT_YEARS,
-        }
-    elif bf:
-        lite_kw = {"stride": SENTIMENT_BACKFILL_STRIDE}
-    df = attach_sentiment_features(df, ticker=ticker, backfill=bf, **lite_kw)
-    if "sent_vix_interaction" not in df.columns:
-        df["sent_vix_interaction"] = df["rolling_sentiment_20d"] * df["VIX"]
+    df = _attach_sentiment(df, ticker, sentiment_mode)
 
     horizon = SNIPER_FORECAST_HORIZON_DAYS
     df["target_up"] = (close.shift(-horizon) > close).astype(float)
@@ -88,8 +118,8 @@ def _engineer_ticker_features(
 def build_sniper_dataset(
     tickers: list[str] | None = None,
     period: str = TRAIN_PERIOD,
-    backfill_sentiment: bool = True,
-    sentiment_mode: str = "inference_only",
+    backfill_sentiment: bool = True,  # kept for API compat; mode drives behaviour
+    sentiment_mode: str = DEFAULT_SENTIMENT_MODE,
 ) -> pd.DataFrame:
     tickers = tickers or DEFAULT_TRAIN_TICKERS
     vix_df = _fetch_vix_history(period)
@@ -99,11 +129,7 @@ def build_sniper_dataset(
         try:
             raw = fetch_stock_data(ticker=ticker, period=period)
             raw = validate_stock_data(raw)
-            feat = _engineer_ticker_features(
-                raw, vix_df, ticker=ticker,
-                backfill_sentiment=backfill_sentiment,
-                sentiment_mode=sentiment_mode,
-            )
+            feat = _engineer_ticker_features(raw, vix_df, ticker=ticker, sentiment_mode=sentiment_mode)
             feat["ticker"] = ticker
             frames.append(feat)
             logger.info("Sniper dataset: %d rows for %s", len(feat), ticker)
@@ -117,7 +143,6 @@ def build_sniper_dataset(
     combined = combined.sort_values(["ticker", "Date"]).reset_index(drop=True)
     required = SNIPER_FEATURE_COLS + ["target_up"]
     combined = combined.dropna(subset=required)
-    # Winsorize outliers (1st/99th pct) — reduces overfit to extreme moves
     for col in SNIPER_FEATURE_COLS:
         lo, hi = combined[col].quantile([0.01, 0.99])
         combined[col] = combined[col].clip(lo, hi)

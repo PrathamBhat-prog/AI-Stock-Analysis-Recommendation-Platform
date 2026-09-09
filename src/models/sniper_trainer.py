@@ -59,7 +59,7 @@ def train_sniper(
     period: str = "10y",
     threshold: float | None = None,
     backfill_sentiment: bool = True,
-    sentiment_mode: str = "lite",
+    sentiment_mode: str = "proxy",
 ) -> dict:
     project_root = Path(__file__).resolve().parents[2]
     mlruns = project_root / "mlruns"
@@ -119,10 +119,10 @@ def train_sniper(
         "tickers": tickers or "default",
         "split_method": "per_ticker_chronological",
         "sentiment_mode": sentiment_mode,
-        "sentiment_backfill": backfill_sentiment and sentiment_mode != "inference_only",
+        "sentiment_backfill": sentiment_mode in ("lite", "full", "gdelt_lite", "gdelt_full"),
         "note": (
             f"{sentiment_mode}: {SNIPER_FORECAST_HORIZON_DAYS}d labels, winsorized features, "
-            "validation-tuned threshold. Live GDELT at inference."
+            "val-tuned threshold. Training uses proxy sentiment; live GDELT at inference."
         ),
     }
     meta_path = Path(SNIPER_CBM_PATH).parent / "sniper_metadata.json"

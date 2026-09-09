@@ -1,10 +1,8 @@
 """
-Production pipeline (fast default ~30-45 min):
-  1. Train Sniper v5 on 10y price/VIX/momentum (sentiment_mode=inference_only)
-  2. Live GDELT sentiment applied at inference time (no multi-hour backfill)
-  3. Verify + generate PDF/DOCX deliverables
-
-Optional slow path: --sentiment-mode lite (~1-2h) or full (overnight+)
+Production pipeline (~10 min):
+  1. Train Sniper v5 (proxy sentiment — no GDELT 429)
+  2. Live GDELT at inference only
+  3. Verify + PDF/DOCX deliverables
 """
 
 from __future__ import annotations
@@ -13,7 +11,6 @@ import argparse
 import json
 import logging
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,32 +34,37 @@ def _setup_logging() -> None:
 
 def main() -> int:
     _setup_logging()
-    parser = argparse.ArgumentParser(description="Fast production train + deliverables")
+    parser = argparse.ArgumentParser(description="Production train + deliverables")
     parser.add_argument("--period", default="10y")
     parser.add_argument(
         "--sentiment-mode",
-        choices=["inference_only", "lite", "full"],
-        default="lite",
-        help="lite=recommended (~1-2h GDELT + train); inference_only=fast; full=overnight",
+        choices=["proxy", "inference_only", "lite", "full"],
+        default="proxy",
+        help="proxy=default (no GDELT 429); lite/full deprecated",
     )
     parser.add_argument("--skip-train", action="store_true")
     args = parser.parse_args()
 
-    logger.info("=== Production pipeline (sentiment_mode=%s, period=%s) ===", args.sentiment_mode, args.period)
+    if args.sentiment_mode in ("lite", "full"):
+        logger.warning(
+            "GDELT %s mode often hits HTTP 429 — use --sentiment-mode proxy instead",
+            args.sentiment_mode,
+        )
+
+    logger.info("=== Production pipeline (sentiment_mode=%s) ===", args.sentiment_mode)
 
     if not args.skip_train:
         from src.models.sniper_trainer import train_sniper
 
-        logger.info("Training Sniper v5 (no multi-hour GDELT backfill unless mode=full)")
-        meta = train_sniper(
-            period=args.period,
-            backfill_sentiment=args.sentiment_mode != "inference_only",
-            sentiment_mode=args.sentiment_mode,
+        meta = train_sniper(period=args.period, sentiment_mode=args.sentiment_mode)
+        logger.info(
+            "Done — test AUC=%.4f acc=%.3f prec=%.3f",
+            meta["test_metrics"]["roc_auc"],
+            meta["test_metrics"]["accuracy"],
+            meta["test_metrics"]["precision"],
         )
-        logger.info("Training complete — test AUC=%.4f", meta["test_metrics"]["roc_auc"])
         print(json.dumps(meta, indent=2))
 
-    logger.info("Verification + deliverables (PDF + DOCX)")
     import importlib.util
 
     del_path = ROOT / "scripts" / "generate_deliverables.py"
@@ -72,7 +74,6 @@ def main() -> int:
     spec.loader.exec_module(del_mod)
     del_mod.main()
 
-    logger.info("Done. Log: %s", LOG_PATH)
     return 0
 
 
@@ -80,5 +81,5 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except Exception:
-        logger.exception("Production pipeline failed")
+        logger.exception("Pipeline failed")
         sys.exit(1)

@@ -13,8 +13,8 @@ Production-style stock analyser: **CatBoost Sniper v5** + **GDELT sentiment** + 
 | Feature | Implementation |
 |---------|----------------|
 | 10-day CatBoost Sniper v5 (`.cbm`) | Shorter horizon label = stronger learnable signal vs 20d |
-| Lite GDELT backfill (recommended train) | `sentiment_mode=lite` — ~12 samples/ticker, last 3y (~1–2h) |
-| Live GDELT at inference | `src/data/news_fetcher.py` — always on for user-facing analysis |
+| **Train/serve sentiment split** | Training: price/volume **proxy** (no GDELT 429). Inference: **live GDELT** |
+| Proxy sentiment (`sentiment_mode=proxy`) | `src/data/sentiment_proxy.py` — ~32 yfinance calls, no rate limits |
 | Optional FinBERT sentiment (local, no API key) | `SENTIMENT_BACKEND=finbert` when `transformers` installed |
 | Per-ticker chronological train/val/test splits | `src/data/splits.py` — 70% / 15% / 15% per ticker |
 | Walk-forward backtest + transaction costs | `src/backtest/walk_forward.py` — default 10 bps one-way |
@@ -42,11 +42,13 @@ Horizon keys are **trading days** (market sessions), not calendar days.
 
 The CatBoost model label: **P(price higher in ~10 trading days)**. Threshold is tuned on validation F1 (stored in `sniper_metadata.json`).
 
-### Model training improvements (v5.1)
-- **10-day labels** (was 20d) — less noise, better accuracy on held-out test
-- **Lite GDELT** — 12 sampled dates per ticker over last 3 years (cached in `artifacts/sentiment.db`)
-- **Winsorization** — features clipped at 1st/99th percentile
-- **Validation threshold tuning** — maximises F1, not fixed 0.52
+### Why not GDELT during training?
+GDELT's free API returns **HTTP 429** on historical backfill (hours/overnight, often fails).  
+**Solution:** train on a **market-derived sentiment proxy**; apply **real GDELT headlines only at inference** (1–2 calls per stock analysis). See [Architecture](docs/ARCHITECTURE.md).
+
+### Model training (v5.1)
+- **10-day labels**, **proxy sentiment**, **winsorization**, **validation F1 threshold tuning**
+- `gdelt_lite` / `gdelt_full` deprecated — use `proxy` (default)
 
 Decision thresholds (blended ML+trend score): BUY ≥ 0.58, SELL ≤ 0.42 (`src/config/horizons.py`).
 
@@ -64,8 +66,8 @@ pip install -r requirements.txt
 # Option A — copy bundled legacy pickle (inference works; .cbm preferred)
 python scripts/setup_model.py
 
-# Option B — production train (recommended, ~1–2 hours)
-python train.py --strategy sniper --period 10y --sentiment-mode lite
+# Option B — production train (~10 min)
+python train.py --strategy sniper --period 10y --sentiment-mode proxy
 
 python verify_pipeline.py
 pytest tests/ -v
@@ -96,11 +98,10 @@ Mount `./artifacts` and `./.cache` so trained `.cbm` models and GDELT caches per
 
 | Command | Description |
 |---------|-------------|
-| `python scripts/run_production_pipeline.py` | **Recommended** — lite GDELT + 10y train + verify + PDF/DOCX (~1–2h) |
-| `python train.py --strategy sniper --period 10y` | Same (default: `sentiment_mode=lite`) |
-| `python train.py --strategy sniper --sentiment-mode inference_only` | Fast (~5 min) but weaker metrics |
-| `python scripts/backfill_all_sentiment.py` | Slow full GDELT cache (overnight; only if you need historical sentiment in training) |
-| `python train.py --strategy sniper --no-gdelt-backfill` | Fast dev (neutral sentiment features) |
+| `python scripts/run_production_pipeline.py` | **Recommended** — proxy train + verify + PDF/DOCX (~10 min) |
+| `python train.py --strategy sniper --period 10y` | Same (default: `sentiment_mode=proxy`) |
+| `python train.py --strategy sniper --sentiment-mode inference_only` | Neutral sentiment baseline (~5 min) |
+| `python train.py --strategy sniper --sentiment-mode lite` | **Deprecated** — GDELT 429 rate limits |
 | `python train.py --strategy sklearn --period 10y` | Compare **8** model candidates (7 tabular + LSTM), 20d labels |
 | `python train.py --strategy backtest --period 10y` | Walk-forward backtest (10 bps costs) |
 | `python scripts/backfill_sentiment.py AAPL --period 10y` | Pre-warm GDELT cache for one ticker |
