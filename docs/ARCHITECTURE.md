@@ -12,7 +12,7 @@ Horizon keys are **trading days** (market sessions). `126d` ≈ six months of ma
 | ~6 months of sessions (`126d`) | 15% | 85% | Trend extrapolation |
 | ~1 year of sessions (`252d`) | 10% | 90% | Trend direction — **not** an ML annual forecast |
 
-The CatBoost **Sniper v5** model estimates **P(price higher in ~20 trading days)**.
+The CatBoost **Sniper v5** model estimates **P(price higher in ~10 trading days)** (v5.1: was 20d).
 
 ## Data flow
 

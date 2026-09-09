@@ -117,4 +117,8 @@ def build_sniper_dataset(
     combined = combined.sort_values(["ticker", "Date"]).reset_index(drop=True)
     required = SNIPER_FEATURE_COLS + ["target_up"]
     combined = combined.dropna(subset=required)
+    # Winsorize outliers (1st/99th pct) — reduces overfit to extreme moves
+    for col in SNIPER_FEATURE_COLS:
+        lo, hi = combined[col].quantile([0.01, 0.99])
+        combined[col] = combined[col].clip(lo, hi)
     return combined

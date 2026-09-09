@@ -15,8 +15,8 @@ DEFAULT_TRAIN_TICKERS = [
     "ICICIBANK.NS", "BHARTIARTL.NS", "ITC.NS", "SBIN.NS",
 ]
 
-FORECAST_HORIZON_DAYS = 20
-SNIPER_FORECAST_HORIZON_DAYS = 20
+FORECAST_HORIZON_DAYS = 20  # sklearn/LSTM research pipeline
+SNIPER_FORECAST_HORIZON_DAYS = 10  # Sniper v5: shorter horizon = stronger learnable signal
 TRAIN_PERIOD = "10y"
 TARGET_MIN_ROWS = 25_000
 
@@ -58,9 +58,9 @@ SNIPER_CBM_PATH = "artifacts/models/trading_model_sniper_v5.cbm"
 # Historical GDELT: sample every N trading days, then forward-fill (rate-limit safe)
 SENTIMENT_BACKFILL_STRIDE = 20
 # Lite mode: cap API calls per ticker (avoids multi-hour full backfill)
-SENTIMENT_LITE_MAX_SAMPLES = 8
-SENTIMENT_LITE_RECENT_YEARS = 2
-SENTIMENT_LITE_STRIDE = 60
+SENTIMENT_LITE_MAX_SAMPLES = 12
+SENTIMENT_LITE_RECENT_YEARS = 3
+SENTIMENT_LITE_STRIDE = 45
 
 MLFLOW_EXPERIMENT_TRAINING = "stock-ml-training"
 MLFLOW_EXPERIMENT_INFERENCE = "stock-analysis-pipeline"
@@ -71,17 +71,18 @@ SHORT_PERIODS = {"1d", "5d", "1mo", "3mo"}
 
 # CatBoost Sniper v5 defaults (reproducible training)
 SNIPER_CATBOOST_PARAMS = {
-    "iterations": 1500,
-    "learning_rate": 0.015,
-    "depth": 7,
-    "l2_leaf_reg": 8,
+    "iterations": 1200,
+    "learning_rate": 0.02,
+    "depth": 6,
+    "l2_leaf_reg": 12,
     "random_seed": 42,
     "verbose": 100,
     "eval_metric": "AUC",
     "auto_class_weights": "Balanced",
+    "early_stopping_rounds": 80,
 }
 
-SNIPER_CONF_THRESHOLD = 0.52
+SNIPER_CONF_THRESHOLD = 0.50  # fallback; trainer tunes on validation F1
 
 MARKET_BENCHMARKS = {
     "random_guess": {"accuracy": 0.50, "f1": 0.50, "roc_auc": 0.50},

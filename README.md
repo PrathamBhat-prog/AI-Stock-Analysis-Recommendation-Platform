@@ -12,9 +12,9 @@ Production-style stock analyser: **CatBoost Sniper v5** + **GDELT sentiment** + 
 
 | Feature | Implementation |
 |---------|----------------|
-| 20-day CatBoost production model (`.cbm`) | `src/models/sniper_trainer.py` → `artifacts/models/trading_model_sniper_v5.cbm` |
-| GDELT sentiment at **inference** (live headlines) | `src/data/news_fetcher.py` — default production path |
-| Optional historical GDELT backfill (slow) | `sentiment_mode=lite|full` — not required for training |
+| 10-day CatBoost Sniper v5 (`.cbm`) | Shorter horizon label = stronger learnable signal vs 20d |
+| Lite GDELT backfill (recommended train) | `sentiment_mode=lite` — ~12 samples/ticker, last 3y (~1–2h) |
+| Live GDELT at inference | `src/data/news_fetcher.py` — always on for user-facing analysis |
 | Optional FinBERT sentiment (local, no API key) | `SENTIMENT_BACKEND=finbert` when `transformers` installed |
 | Per-ticker chronological train/val/test splits | `src/data/splits.py` — 70% / 15% / 15% per ticker |
 | Walk-forward backtest + transaction costs | `src/backtest/walk_forward.py` — default 10 bps one-way |
@@ -35,12 +35,18 @@ Horizon keys are **trading days** (market sessions), not calendar days.
 | Horizon key | Trading days | ~Calendar equivalent | ML weight | Trend weight | Honest answer |
 |-------------|--------------|----------------------|-----------|--------------|---------------|
 | `5d` | 5 | ~1 week | 80% | 20% | Short-term directional bias |
-| `21d` | 21 | ~1 month | 50% | 50% | **Default** — closest to ML training (20 trading days) |
+| `21d` | 21 | ~1 month | 50% | 50% | **Default** — closest to ML training (~10 trading days) |
 | `63d` | 63 | ~3 months | 30% | 70% | Trend regime |
 | `126d` | 126 | ~6 months of sessions (~180 calendar days) | 15% | 85% | Trend extrapolation |
 | `252d` | 252 | ~1 year of sessions (~365 calendar days) | 10% | 90% | Trend direction — **not** an annual price forecast |
 
-The CatBoost model label: **P(price higher in ~20 trading days)**.
+The CatBoost model label: **P(price higher in ~10 trading days)**. Threshold is tuned on validation F1 (stored in `sniper_metadata.json`).
+
+### Model training improvements (v5.1)
+- **10-day labels** (was 20d) — less noise, better accuracy on held-out test
+- **Lite GDELT** — 12 sampled dates per ticker over last 3 years (cached in `artifacts/sentiment.db`)
+- **Winsorization** — features clipped at 1st/99th percentile
+- **Validation threshold tuning** — maximises F1, not fixed 0.52
 
 Decision thresholds (blended ML+trend score): BUY ≥ 0.58, SELL ≤ 0.42 (`src/config/horizons.py`).
 
@@ -58,8 +64,8 @@ pip install -r requirements.txt
 # Option A — copy bundled legacy pickle (inference works; .cbm preferred)
 python scripts/setup_model.py
 
-# Option B — production train (recommended)
-python train.py --strategy sniper --period 10y
+# Option B — production train (recommended, ~1–2 hours)
+python train.py --strategy sniper --period 10y --sentiment-mode lite
 
 python verify_pipeline.py
 pytest tests/ -v
@@ -90,9 +96,9 @@ Mount `./artifacts` and `./.cache` so trained `.cbm` models and GDELT caches per
 
 | Command | Description |
 |---------|-------------|
-| `python scripts/run_production_pipeline.py` | **Fast production (~30 min)** — 10y train + verify + PDF/DOCX |
-| `python train.py --strategy sniper --period 10y` | Same as above (default: `inference_only` sentiment) |
-| `python train.py --strategy sniper --sentiment-mode lite` | Optional: ~8 GDELT samples/ticker (1–2 hours) |
+| `python scripts/run_production_pipeline.py` | **Recommended** — lite GDELT + 10y train + verify + PDF/DOCX (~1–2h) |
+| `python train.py --strategy sniper --period 10y` | Same (default: `sentiment_mode=lite`) |
+| `python train.py --strategy sniper --sentiment-mode inference_only` | Fast (~5 min) but weaker metrics |
 | `python scripts/backfill_all_sentiment.py` | Slow full GDELT cache (overnight; only if you need historical sentiment in training) |
 | `python train.py --strategy sniper --no-gdelt-backfill` | Fast dev (neutral sentiment features) |
 | `python train.py --strategy sklearn --period 10y` | Compare **8** model candidates (7 tabular + LSTM), 20d labels |

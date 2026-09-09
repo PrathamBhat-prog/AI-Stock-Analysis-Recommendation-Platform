@@ -9,7 +9,10 @@ from datetime import date
 import pandas as pd
 import yfinance as yf
 
-from src.config.ml_config import SNIPER_CONF_THRESHOLD
+import json
+from pathlib import Path
+
+from src.config.ml_config import SNIPER_CONF_THRESHOLD, SNIPER_FORECAST_HORIZON_DAYS
 from src.data.news_fetcher import fetch_headlines
 from src.data.sentiment_cache import build_sentiment_features, save_sentiment
 from src.data.sentiment_scorer import score_headlines, _backend
@@ -52,6 +55,22 @@ def _build_ohlcv_features(df: pd.DataFrame) -> dict:
         "dist_52w_high": dist_52w_high,
         "vol_ratio_5d": vol_ratio_5d,
     }
+
+
+def _load_threshold() -> float:
+    meta_path = Path(__file__).resolve().parents[2] / "artifacts" / "models" / "sniper_metadata.json"
+    if meta_path.exists():
+        with open(meta_path, encoding="utf-8") as f:
+            return float(json.load(f).get("threshold", SNIPER_CONF_THRESHOLD))
+    return SNIPER_CONF_THRESHOLD
+
+
+def _load_forecast_horizon() -> int:
+    meta_path = Path(__file__).resolve().parents[2] / "artifacts" / "models" / "sniper_metadata.json"
+    if meta_path.exists():
+        with open(meta_path, encoding="utf-8") as f:
+            return int(json.load(f).get("forecast_horizon_days", SNIPER_FORECAST_HORIZON_DAYS))
+    return SNIPER_FORECAST_HORIZON_DAYS
 
 
 class SniperPredictor:
@@ -98,7 +117,8 @@ class SniperPredictor:
         }
         X = pd.DataFrame([row])[FEATURE_COLS]
         proba_up = float(self._model.predict_proba(X)[0, 1])
-        threshold = SNIPER_CONF_THRESHOLD
+        threshold = _load_threshold()
+        horizon = _load_forecast_horizon()
 
         if proba_up >= threshold:
             signal = "BULLISH"
@@ -115,7 +135,7 @@ class SniperPredictor:
             "threshold": threshold,
             "model_name": "CatBoost Sniper v5",
             "model_path": self._model_path,
-            "forecast_horizon_days": 20,
+            "forecast_horizon_days": horizon,
             "sentiment_score": round(sent_score, 4),
             "sentiment_backend": _backend(),
             "vix": round(vix, 2),
@@ -124,7 +144,7 @@ class SniperPredictor:
             "available": True,
             "feature_vector": row,
             "reason": (
-                f"CatBoost Sniper v5: {proba_up:.1%} P(up) in ~20 trading days. "
+                f"CatBoost Sniper v5: {proba_up:.1%} P(up) in ~{horizon} trading days. "
                 f"Sentiment {_backend()} {sent_score:+.3f}, VIX {vix:.1f}."
             ),
         }

@@ -12,13 +12,14 @@ import mlflow
 import numpy as np
 import pandas as pd
 from catboost import CatBoostClassifier
-from sklearn.metrics import accuracy_score, precision_score, recall_score, roc_auc_score
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
 
 from src.config.ml_config import (
     MLFLOW_EXPERIMENT_SNIPER,
     SNIPER_CATBOOST_PARAMS,
     SNIPER_CBM_PATH,
     SNIPER_CONF_THRESHOLD,
+    SNIPER_FORECAST_HORIZON_DAYS,
     SNIPER_MODEL_PATH,
 )
 from src.data.splits import per_ticker_chronological_split
@@ -34,17 +35,31 @@ def _metrics(y_true: np.ndarray, probas: np.ndarray, threshold: float) -> dict:
         "accuracy": float(accuracy_score(y_true, preds)),
         "precision": float(precision_score(y_true, preds, zero_division=0)),
         "recall": float(recall_score(y_true, preds, zero_division=0)),
+        "f1": float(f1_score(y_true, preds, zero_division=0)),
         "roc_auc": float(roc_auc_score(y_true, probas)),
         "threshold": threshold,
     }
 
 
+def _tune_threshold(y_true: np.ndarray, probas: np.ndarray) -> float:
+    """Pick threshold on validation set that maximises F1."""
+    best_t = SNIPER_CONF_THRESHOLD
+    best_f1 = -1.0
+    for t in np.linspace(0.42, 0.58, 33):
+        f1 = f1_score(y_true, (probas >= t).astype(int), zero_division=0)
+        if f1 > best_f1:
+            best_f1 = f1
+            best_t = float(t)
+    logger.info("Tuned threshold=%.3f (val F1=%.4f)", best_t, best_f1)
+    return best_t
+
+
 def train_sniper(
     tickers: list[str] | None = None,
     period: str = "10y",
-    threshold: float = SNIPER_CONF_THRESHOLD,
+    threshold: float | None = None,
     backfill_sentiment: bool = True,
-    sentiment_mode: str = "inference_only",
+    sentiment_mode: str = "lite",
 ) -> dict:
     project_root = Path(__file__).resolve().parents[2]
     mlruns = project_root / "mlruns"
@@ -52,8 +67,8 @@ def train_sniper(
     mlflow.set_experiment(MLFLOW_EXPERIMENT_SNIPER)
 
     logger.info(
-        "Building Sniper v5 dataset (sentiment_mode=%s, backfill=%s) ...",
-        sentiment_mode, backfill_sentiment,
+        "Building Sniper v5 dataset (sentiment_mode=%s, horizon=%dd) ...",
+        sentiment_mode, SNIPER_FORECAST_HORIZON_DAYS,
     )
     dataset = build_sniper_dataset(
         tickers=tickers,
@@ -75,8 +90,9 @@ def train_sniper(
 
     val_proba = model.predict_proba(x_val)[:, 1]
     test_proba = model.predict_proba(x_test)[:, 1]
-    val_m = _metrics(y_val.values, val_proba, threshold)
-    test_m = _metrics(y_test.values, test_proba, threshold)
+    tuned_t = threshold if threshold is not None else _tune_threshold(y_val.values, val_proba)
+    val_m = _metrics(y_val.values, val_proba, tuned_t)
+    test_m = _metrics(y_test.values, test_proba, tuned_t)
 
     cbm_path = save_catboost_model(model, SNIPER_CBM_PATH)
 
@@ -93,8 +109,8 @@ def train_sniper(
         "model_path": cbm_path,
         "legacy_pickle_path": SNIPER_MODEL_PATH,
         "feature_columns": SNIPER_FEATURE_COLS,
-        "forecast_horizon_days": 20,
-        "threshold": threshold,
+        "forecast_horizon_days": SNIPER_FORECAST_HORIZON_DAYS,
+        "threshold": tuned_t,
         "val_metrics": val_m,
         "test_metrics": test_m,
         "train_rows": len(train_df),
@@ -105,8 +121,8 @@ def train_sniper(
         "sentiment_mode": sentiment_mode,
         "sentiment_backfill": backfill_sentiment and sentiment_mode != "inference_only",
         "note": (
-            "inference_only: train on price/VIX/momentum; live GDELT sentiment at inference. "
-            "lite/full: optional historical GDELT backfill (slow)."
+            f"{sentiment_mode}: {SNIPER_FORECAST_HORIZON_DAYS}d labels, winsorized features, "
+            "validation-tuned threshold. Live GDELT at inference."
         ),
     }
     meta_path = Path(SNIPER_CBM_PATH).parent / "sniper_metadata.json"
@@ -116,10 +132,15 @@ def train_sniper(
     with mlflow.start_run(run_name="sniper-v5"):
         mlflow.log_params(SNIPER_CATBOOST_PARAMS)
         mlflow.log_param("split_method", "per_ticker_chronological")
-        mlflow.log_param("sentiment_backfill", backfill_sentiment)
+        mlflow.log_param("sentiment_mode", sentiment_mode)
+        mlflow.log_param("forecast_horizon_days", SNIPER_FORECAST_HORIZON_DAYS)
+        mlflow.log_param("threshold", tuned_t)
         for k, v in test_m.items():
             mlflow.log_metric(f"test_{k}", v)
         mlflow.log_artifact(cbm_path)
 
-    logger.info("Sniper v5 saved to %s (test AUC=%.4f)", cbm_path, test_m["roc_auc"])
+    logger.info(
+        "Sniper v5 saved — test AUC=%.4f acc=%.3f prec=%.3f @ threshold=%.3f",
+        test_m["roc_auc"], test_m["accuracy"], test_m["precision"], tuned_t,
+    )
     return metadata

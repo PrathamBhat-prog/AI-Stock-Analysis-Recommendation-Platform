@@ -32,11 +32,11 @@ HORIZONS: dict[str, HorizonConfig] = {
         "calendar_approx": "~7 calendar days",
         "ml_weight": 0.80,
         "trend_weight": 0.20,
-        "ml_training_horizon_days": 20,
+        "ml_training_horizon_days": 10,
         "primary_signal": "ML (short-horizon model)",
         "user_expectation": "Short-term directional bias over the next week of trading.",
         "honest_disclaimer": (
-            "ML is trained on 20 trading-day moves; this view weights that signal heavily."
+            "ML is trained on ~10 trading-day moves; this view weights that signal heavily."
         ),
     },
     "21d": {
@@ -46,11 +46,11 @@ HORIZONS: dict[str, HorizonConfig] = {
         "calendar_approx": "~30 calendar days",
         "ml_weight": 0.50,
         "trend_weight": 0.50,
-        "ml_training_horizon_days": 20,
+        "ml_training_horizon_days": 10,
         "primary_signal": "ML + Trend (balanced)",
         "user_expectation": "Swing outlook over ~1 month of trading sessions.",
         "honest_disclaimer": (
-            "Closest to the model's 20 trading-day training horizon."
+            "Closest to the model's ~10 trading-day training horizon."
         ),
     },
     "63d": {
@@ -60,7 +60,7 @@ HORIZONS: dict[str, HorizonConfig] = {
         "calendar_approx": "~90 calendar days",
         "ml_weight": 0.30,
         "trend_weight": 0.70,
-        "ml_training_horizon_days": 20,
+        "ml_training_horizon_days": 10,
         "primary_signal": "Trend analysis (ML assist)",
         "user_expectation": "Medium-term trend over ~3 months of market sessions.",
         "honest_disclaimer": (
@@ -74,7 +74,7 @@ HORIZONS: dict[str, HorizonConfig] = {
         "calendar_approx": "~180 calendar days (not 126 calendar days)",
         "ml_weight": 0.15,
         "trend_weight": 0.85,
-        "ml_training_horizon_days": 20,
+        "ml_training_horizon_days": 10,
         "primary_signal": "Trend analysis",
         "user_expectation": "Longer-term trend over ~6 months of market activity.",
         "honest_disclaimer": (
@@ -89,7 +89,7 @@ HORIZONS: dict[str, HorizonConfig] = {
         "calendar_approx": "~365 calendar days (not 252 calendar days)",
         "ml_weight": 0.10,
         "trend_weight": 0.90,
-        "ml_training_horizon_days": 20,
+        "ml_training_horizon_days": 10,
         "primary_signal": "Long-term trend analysis",
         "user_expectation": "Annual trend direction over ~1 year of market sessions.",
         "honest_disclaimer": (

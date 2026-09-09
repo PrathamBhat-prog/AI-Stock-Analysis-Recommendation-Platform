@@ -81,8 +81,8 @@ def main() -> int:
     parser.add_argument(
         "--sentiment-mode",
         choices=["inference_only", "lite", "full"],
-        default="inference_only",
-        help="inference_only=fast (~30min, live GDELT at runtime); lite=~8 samples/ticker; full=hours",
+        default="lite",
+        help="lite=recommended (~1-2h); inference_only=fast; full=overnight",
     )
     args = parser.parse_args()
 

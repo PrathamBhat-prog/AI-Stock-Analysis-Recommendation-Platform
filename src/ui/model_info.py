@@ -76,7 +76,7 @@ def build_model_info_markdown() -> str:
     return f"""
 ## Sniper v5 — CatBoost production model
 
-**Objective:** Estimate P(stock price higher in ~**20 trading days**).
+**Objective:** Estimate P(stock price higher in ~**10 trading days**).
 
 {metrics_note}
 
