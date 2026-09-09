@@ -89,7 +89,9 @@ Mount `./artifacts` and `./.cache` so trained `.cbm` models and GDELT caches per
 
 | Command | Description |
 |---------|-------------|
-| `python train.py --strategy sniper --period 10y` | **Production default** — 32 tickers, GDELT backfill ON |
+| `python scripts/run_production_pipeline.py` | **Full production** — resumable GDELT cache + 10y train |
+| `python scripts/backfill_all_sentiment.py` | Pre-warm GDELT/SQLite cache only (resumable) |
+| `python train.py --strategy sniper --period 10y` | Train only — 32 tickers, GDELT backfill ON |
 | `python train.py --strategy sniper --no-gdelt-backfill` | Fast dev (neutral sentiment features) |
 | `python train.py --strategy sklearn --period 10y` | Compare **8** model candidates (7 tabular + LSTM), 20d labels |
 | `python train.py --strategy backtest --period 10y` | Walk-forward backtest (10 bps costs) |
