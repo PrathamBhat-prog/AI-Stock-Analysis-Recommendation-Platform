@@ -72,6 +72,18 @@ def main() -> int:
     else:
         logger.info("Phase 2/2: skipped (--skip-train)")
 
+    logger.info("Phase 3: verification + deliverables (PDF + DOCX)")
+    import importlib.util
+
+    del_path = ROOT / "scripts" / "generate_deliverables.py"
+    spec = importlib.util.spec_from_file_location("generate_deliverables", del_path)
+    del_mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(del_mod)
+    rc = del_mod.main()
+    if rc != 0:
+        logger.warning("Deliverables generation completed with verification warnings (see log)")
+
     logger.info("Log file: %s", LOG_PATH)
     return 0
 
