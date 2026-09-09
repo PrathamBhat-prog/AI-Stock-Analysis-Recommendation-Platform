@@ -139,16 +139,6 @@ def train_sniper(
             mlflow.log_metric(f"test_{k}", v)
         mlflow.log_artifact(cbm_path)
 
-    try:
-        from src.models.overfitting_analysis import save_overfitting_report
-        of = save_overfitting_report()
-        metadata["overfitting_verdict"] = of.get("verdict")
-        metadata["overfitting_summary"] = of.get("summary")
-        with open(meta_path, "w", encoding="utf-8") as f:
-            json.dump(metadata, f, indent=2)
-    except Exception as exc:
-        logger.warning("Overfitting report skipped: %s", exc)
-
     logger.info(
         "Sniper v5 saved — test AUC=%.4f acc=%.3f prec=%.3f @ threshold=%.3f",
         test_m["roc_auc"], test_m["accuracy"], test_m["precision"], tuned_t,

@@ -1,8 +1,8 @@
 """
-Production pipeline (~10 min):
+Production pipeline:
   1. Train Sniper v5 (proxy sentiment for reproducible training)
   2. Live GDELT at inference
-  3. Verify + PDF/DOCX deliverables
+  3. Print held-out metrics
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ def _setup_logging() -> None:
 
 def main() -> int:
     _setup_logging()
-    parser = argparse.ArgumentParser(description="Production train + deliverables")
+    parser = argparse.ArgumentParser(description="Production train + held-out metrics")
     parser.add_argument("--period", default="10y")
     parser.add_argument(
         "--sentiment-mode",
@@ -64,15 +64,6 @@ def main() -> int:
             meta["test_metrics"]["precision"],
         )
         print(json.dumps(meta, indent=2))
-
-    import importlib.util
-
-    del_path = ROOT / "scripts" / "generate_deliverables.py"
-    spec = importlib.util.spec_from_file_location("generate_deliverables", del_path)
-    del_mod = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(del_mod)
-    del_mod.main()
 
     return 0
 

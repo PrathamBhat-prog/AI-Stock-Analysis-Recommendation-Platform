@@ -1,10 +1,10 @@
 """
 Build training dataset for Sniper v5 CatBoost (free data sources only).
 
-Sentiment architecture (no GDELT 429 during training):
+Sentiment architecture:
   proxy (default) — price/volume proxy + 1 yfinance news call per ticker
   inference_only — neutral zeros (fast baseline)
-  gdelt_lite / gdelt_full — deprecated; hits GDELT rate limits
+  lite / full — optional historical GDELT backfill for research
 """
 
 from __future__ import annotations
@@ -66,10 +66,7 @@ def _attach_sentiment(
         return df
 
     if sentiment_mode in ("lite", "gdelt_lite"):
-        logger.warning(
-            "%s: gdelt lite mode hits API rate limits — consider --sentiment-mode proxy",
-            ticker,
-        )
+        logger.warning("%s: historical GDELT lite mode is slower than proxy", ticker)
         lite_kw = {
             "stride": SENTIMENT_LITE_STRIDE,
             "max_samples": SENTIMENT_LITE_MAX_SAMPLES,
@@ -78,7 +75,7 @@ def _attach_sentiment(
         return attach_sentiment_features(df, ticker=ticker, backfill=True, **lite_kw)
 
     if sentiment_mode in ("full", "gdelt_full"):
-        logger.warning("%s: full GDELT backfill is deprecated (429 rate limits)", ticker)
+        logger.warning("%s: full historical GDELT backfill is slower than proxy", ticker)
         return attach_sentiment_features(
             df, ticker=ticker, backfill=True, stride=SENTIMENT_BACKFILL_STRIDE,
         )

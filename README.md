@@ -56,7 +56,7 @@ Inference: live GDELT headlines + same price/VIX features → prediction
 Agents:    ML + Trend + Risk → Decision → Position sizing → API / Gradio
 ```
 
-See [Architecture](docs/ARCHITECTURE.md) and [Project Guide PDF](docs/deliverables/AI_Stock_Analyser_Project_Guide.pdf).
+See [Architecture](docs/ARCHITECTURE.md) for the training vs inference data path and agent layout.
 
 ---
 
@@ -90,12 +90,12 @@ docker compose up --build
 
 | Command | Purpose |
 |---------|---------|
-| `python scripts/run_production_pipeline.py` | Train + verify + regenerate docs (~10 min) |
+| `python scripts/run_production_pipeline.py` | Train + print held-out metrics |
 | `python train.py --strategy sniper --period 10y` | Production CatBoost (default `sentiment_mode=proxy`) |
 | `python train.py --strategy sklearn --period 10y` | Research: 8 model candidates (7 tabular + LSTM) |
 | `python train.py --strategy backtest --period 10y` | Walk-forward backtest (10 bps costs) |
 
-**Outputs:** `artifacts/models/trading_model_sniper_v5.cbm`, `sniper_metadata.json`, `overfitting_report.json`
+**Outputs:** `artifacts/models/trading_model_sniper_v5.cbm`, `sniper_metadata.json`
 
 **Universe:** 32 tickers (24 US + 8 India `.NS`) — `DEFAULT_TRAIN_TICKERS` in `ml_config.py`.
 
@@ -105,7 +105,6 @@ docker compose up --build
 - CatBoost **early stopping** on validation AUC
 - **Winsorization** (1st–99th percentile) on features
 - Threshold tuned on **validation F1** only, evaluated on held-out test
-- Run `python scripts/generate_deliverables.py` to refresh overfitting analysis in the project PDF
 
 ---
 
@@ -135,8 +134,6 @@ docker compose up --build
 | Document | Description |
 |----------|-------------|
 | [Architecture](docs/ARCHITECTURE.md) | System design |
-| [Project Guide (PDF)](docs/deliverables/AI_Stock_Analyser_Project_Guide.pdf) | Full technical write-up + code snippets + overfitting analysis |
-| [Interview Cheat Sheet (DOCX)](docs/deliverables/Interview_Cheat_Sheet.docx) | Q&A for technical interviews |
 
 ---
 

@@ -31,4 +31,3 @@ Horizon keys are **trading days**. Long horizons are trend-dominated by design.
 2. Validation-based early stopping (CatBoost `use_best_model=True`)
 3. Feature winsorization before fit
 4. Threshold tuned on validation; test set untouched until final metrics
-5. `overfitting_report.json` compares train / val / test AUC after each training run

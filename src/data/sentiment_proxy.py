@@ -1,7 +1,6 @@
 """
-Training-time sentiment without GDELT historical API calls.
+Training-time sentiment without historical news-API backfill.
 
-GDELT rate-limits (HTTP 429) make multi-year backfill impractical locally.
 Architecture:
   TRAINING  → market-derived proxy + optional 1× yfinance news call per ticker
   INFERENCE → live GDELT (+ yfinance fallback) in sniper_predictor.py

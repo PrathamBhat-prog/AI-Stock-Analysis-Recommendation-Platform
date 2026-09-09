@@ -41,3 +41,9 @@ Thumbs.db
 # IDE
 .idea/
 .vscode/
+
+# Local interview pack + private analysis (never commit)
+private/
+docs/deliverables/
+scripts/generate_deliverables.py
+src/models/overfitting_analysis.py
